@@ -48,3 +48,4 @@ def start_scheduler():
     
     scheduler.start()
     print("[SCHEDULER] Loyalty loops and AI giveaway chronometers initialized successfully.")
+    
