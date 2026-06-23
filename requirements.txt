@@ -1,1 +1,9 @@
-
+fastapi
+uvicorn
+sqlalchemy
+discord.py
+google-genai
+google-api-python-client
+apscheduler
+jinja2
+python-dotenv

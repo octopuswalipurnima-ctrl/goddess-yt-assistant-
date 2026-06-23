@@ -1,0 +1,77 @@
+from datetime import datetime, timezone
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text
+from sqlalchemy.orm import declarative_base, relationship
+
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    youtube_id = Column(String, unique=True, nullable=False)
+    username = Column(String, nullable=False)
+    first_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    memory = relationship("ViewerMemory", back_populates="user", cascade="all, delete-orphan")
+    xp = relationship("XP", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    coins = relationship("Coin", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    discord_link = relationship("DiscordLink", back_populates="user", uselist=False)
+
+class ViewerMemory(Base):
+    __tablename__ = 'viewer_memory'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    ai_note = Column(Text, nullable=False) 
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    user = relationship("User", back_populates="memory")
+
+class StreamSession(Base):
+    __tablename__ = 'stream_sessions'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    youtube_stream_id = Column(String, unique=True, nullable=False)
+    start_time = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    end_time = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+
+class Attendance(Base):
+    __tablename__ = 'attendance'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    stream_id = Column(Integer, ForeignKey('stream_sessions.id'), nullable=False)
+    joined_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class XP(Base):
+    __tablename__ = 'xp'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id'), unique=True, nullable=False)
+    current_xp = Column(Integer, default=0)
+    level = Column(Integer, default=1)
+    total_messages = Column(Integer, default=0)
+    user = relationship("User", back_populates="xp")
+
+class Coin(Base):
+    __tablename__ = 'coins'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id'), unique=True, nullable=False)
+    balance = Column(Integer, default=0)
+    lifetime_earned = Column(Integer, default=0)
+    lifetime_spent = Column(Integer, default=0)
+    user = relationship("User", back_populates="coins")
+
+class DiscordLink(Base):
+    __tablename__ = 'discord_links'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id'), unique=True, nullable=False)
+    discord_id = Column(String, unique=True, nullable=True)
+    sync_code = Column(String, unique=True, nullable=False) 
+    is_linked = Column(Boolean, default=False)
+    user = relationship("User", back_populates="discord_link")
+
+class ChatLog(Base):
+    __tablename__ = 'chat_logs'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    stream_id = Column(Integer, ForeignKey('stream_sessions.id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    message = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
