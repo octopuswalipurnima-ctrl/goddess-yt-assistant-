@@ -1,6 +1,6 @@
 import random
 from datetime import datetime, timezone
-from apscheduler.schedulers.asyncio import AsyncioScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.database.connection import SessionLocal
 from app.database.models import User, Coin, XP
 from app.ai.generator import AIBrain
@@ -48,4 +48,3 @@ def start_scheduler():
     
     scheduler.start()
     print("[SCHEDULER] Loyalty loops and AI giveaway chronometers initialized successfully.")
-    
