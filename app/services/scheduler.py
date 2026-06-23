@@ -1,11 +1,11 @@
 import random
 from datetime import datetime, timezone
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.asyncio import AsyncioScheduler
 from app.database.connection import SessionLocal
 from app.database.models import User, Coin, XP
 from app.ai.generator import AIBrain
 
-scheduler = AsyncioScheduler()
+scheduler = AsyncIOScheduler()
 ai_brain = AIBrain()
 
 async def award_passive_rewards():
