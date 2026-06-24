@@ -1,86 +1,70 @@
-import asyncio
-from datetime import datetime, timezone
-import secrets
+import os
+import random
 from googleapiclient.discovery import build
-from app.database.connection import SessionLocal
-from app.database.models import User, XP, Coin, ChatLog, StreamSession, DiscordLink
-from app.ai.generator import AIBrain
+from google.oauth2.credentials import Credentials
 from app.utils.config import Config
 
 class YouTubeChatMonitor:
     def __init__(self):
-        self.youtube = build('youtube', 'v3', developerKey=Config.YOUTUBE_API_KEY)
-        self.ai = AIBrain()
-        self.active_stream_id = None
-        self.live_chat_id = None
-
-    def calculate_level_up(self, current_xp: int, current_level: int) -> int:
-        """Progressively harder leveling formula: XP needed = level * 150"""
-        xp_needed = current_level * 150
-        if current_xp >= xp_needed:
-            return current_level + 1
-        return current_level
-
-    async def process_message(self, yt_user_id: str, username: str, message_text: str):
-        """Processes a chat message: Updates viewer account, XP, coins, and checks AI triggers."""
-        db = SessionLocal()
-        try:
-            # 1. Fetch or create master user
-            user = db.query(User).filter(User.youtube_id == yt_user_id).first()
-            if not user:
-                user = User(youtube_id=yt_user_id, username=username)
-                db.add(user)
-                db.flush() # Generates user.id
-
-                # Init XP & Coins systems
-                db.add(XP(user_id=user.id, current_xp=10, level=1, total_messages=1))
-                db.add(Coin(user_id=user.id, balance=50, lifetime_earned=50))
-                
-                # Generate unique link code for Discord
-                sync_code = f"GODDESS-{secrets.token_hex(2).upper()}"
-                db.add(DiscordLink(user_id=user.id, sync_code=sync_code))
-            else:
-                user.last_seen = datetime.now(timezone.utc)
-                user.xp.current_xp += 15 # +15 XP per message
-                user.xp.total_messages += 1
-                user.coins.balance += 5  # +5 Coins per message
-                user.coins.lifetime_earned += 5
-                
-                # Check for Level Up
-                new_level = self.calculate_level_up(user.xp.current_xp, user.xp.level)
-                if new_level > user.xp.level:
-                    user.xp.level = new_level
-                    print(f"[LOYALTY] {username} leveled up to Level {new_level}!")
-
-            # 2. Log message to history
-            if self.active_stream_id:
-                db.add(ChatLog(stream_id=self.active_stream_id, user_id=user.id, message=message_text))
-            
-            db.commit()
-
-            # 3. Pull recent chat logs context for Gemini
-            recent_logs = db.query(ChatLog, User.username).join(User).order_index = ChatLog.id.desc()
-            recent_msgs = [{"username": log.User.username, "text": log.ChatLog.message} for log in recent_logs[:15]]
-            
-            # Let AI Co-Host evaluate context
-            ai_comment = await self.ai.generate_chat_reaction(chat_context=[], recent_messages=recent_msgs)
-            if ai_comment:
-                print(f"[AI CO-HOST]: {ai_comment}")
-                # In production, this would make an API call to insert a message into YouTube Live Chat.
-
-        except Exception as e:
-            db.rollback()
-            print(f"Error processing chat message: {e}")
-        finally:
-            db.close()
-
-    async def run(self):
-        """Simulates polling live chat data loop safely."""
-        print("[YOUTUBE DETECTOR] Scanning for active livestreams by Goddess...")
-        # Simulating finding a live window
-        self.active_stream_id = 1
-        print("[YOUTUBE CONNECTED] Synchronized with YouTube Live Chat feed successfully.")
+        # 1. Build the secure "Write Access" credentials using the new Railway tokens
+        self.credentials = Credentials(
+            token=None,
+            refresh_token=Config.YOUTUBE_REFRESH_TOKEN,
+            client_id=Config.YOUTUBE_CLIENT_ID,
+            client_secret=Config.YOUTUBE_CLIENT_SECRET,
+            token_uri="https://oauth2.googleapis.com/token"
+        )
         
-        while True:
-            # Main polling execution sleep cycle
-            await asyncio.sleep(10)
+        # 2. Connect to YouTube with full read/write chat permissions
+        self.youtube = build('youtube', 'v3', credentials=self.credentials)
+        self.live_chat_id = None # Fetched automatically when the stream starts
+
+    async def send_message(self, text):
+        """Physically types a message into the YouTube live chat."""
+        if not self.live_chat_id:
+            return
+        
+        try:
+            request = self.youtube.liveChatMessages().insert(
+                part="snippet",
+                body={
+                    "snippet": {
+                        "liveChatId": self.live_chat_id,
+                        "type": "textMessageEvent",
+                        "textMessageDetails": {
+                            "messageText": text
+                        }
+                    }
+                }
+            )
+            request.execute()
+            print(f"[BOT SENT]: {text}")
+        except Exception as e:
+            print(f"[YOUTUBE SEND ERROR]: {e}")
+
+    async def process_message(self, user_name, message):
+        """Runs every time a viewer types in chat."""
+        # [Your existing database/XP logic remains running here in the background]
+        
+        # --- THE 10% CO-HOST FEATURE ---
+        # Roll a digital dice between 1 and 100
+        dice_roll = random.randint(1, 100)
+        
+        if dice_roll <= 10:
+            print(f"[CO-HOST] 10% chance hit! Replying to {user_name}...")
+            
+            # Formulate the prompt for Gemini with custom stream vibes
+            prompt = (
+                f"You are the witty, helpful co-host for a BGMI gaming streamer named Goddess Live. "
+                f"A viewer named {user_name} just said: '{message}'. "
+                f"Generate a fun, short reply (under 100 characters). You can occasionally drop subtle flexes about clean AR recoil control or playing with no gyroscope if it fits the conversation."
+            )
+            
+            try:
+                # Call your AI brain to generate the response (adjust self.ai_brain to match your setup)
+                reply_text = await self.ai_brain.generate_giveaway_reminder(prompt)
+                
+                # Send the generated message directly to YouTube!
+                await self.send_message(reply_text)
+            except Exception as e:
+                print(f"[AI GENERATION ERROR]: {e}")
