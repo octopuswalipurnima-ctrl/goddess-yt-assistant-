@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Depends, HTTPException, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -8,7 +9,20 @@ from app.database.models import User, XP, Coin, ChatLog
 from app.utils.config import Config
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
+
+# --- THE FIX: Absolute GPS Pathing for Templates ---
+# 1. Find the exact folder this routes.py file is sitting in (dashboard folder)
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 2. Go UP to the 'app' folder, then UP again to the main root folder
+ROOT_DIR = os.path.dirname(os.path.dirname(CURRENT_DIR))
+
+# 3. Lock in the absolute path to the templates folder sitting in the root
+TEMPLATES_DIR = os.path.join(ROOT_DIR, "templates")
+
+# 4. Mount the templates using the unbreakable absolute path
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
+# ---------------------------------------------------
 
 # Simple state tracking for AI configurations
 GLOBAL_SETTINGS = {
