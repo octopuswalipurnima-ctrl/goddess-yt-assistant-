@@ -5,7 +5,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+   YOUTUBE_CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID")
+   YOUTUBE_CLIENT_SECRET = os.getenv ("YOUTUBE_CLIENT_SECRET")
+   YOUTUBE_REFRESH_TOKEN = os.getenv ("YOUTUBE_REFRESH_TOKEN")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
