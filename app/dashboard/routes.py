@@ -10,7 +10,7 @@ from app.utils.config import Config
 
 router = APIRouter()
 
-# --- THE FIX: Absolute GPS Pathing for Templates ---
+# --- Absolute GPS Pathing for Templates ---
 # 1. Find the exact folder this routes.py file is sitting in (dashboard folder)
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -22,7 +22,6 @@ TEMPLATES_DIR = os.path.join(ROOT_DIR, "templates")
 
 # 4. Mount the templates using the unbreakable absolute path
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
-# ---------------------------------------------------
 
 # Simple state tracking for AI configurations
 GLOBAL_SETTINGS = {
@@ -36,12 +35,16 @@ async def admin_dashboard(request: Request, db: Session = Depends(get_db)):
     viewers = db.query(User).all()
     chat_logs = db.query(ChatLog).order_by(ChatLog.id.desc()).limit(10).all()
     
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "viewers": viewers,
-        "chat_logs": chat_logs,
-        "settings": GLOBAL_SETTINGS
-    })
+    # Updated return syntax required by newer versions of FastAPI
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html", 
+        context={
+            "viewers": viewers,
+            "chat_logs": chat_logs,
+            "settings": GLOBAL_SETTINGS
+        }
+    )
 
 @router.post("/toggle-ai")
 async def toggle_ai(mode: str = Form(...)):
