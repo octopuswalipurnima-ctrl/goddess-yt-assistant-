@@ -12,6 +12,11 @@ app = FastAPI(title="Goddess Stream Manager")
 # Mount our dashboard panel routers
 app.include_router(dashboard_router)
 
+# --- THE FIX: We must store our background tasks safely ---
+# Python 3.12 will forcefully "clean up" and kill any async tasks 
+# if they aren't saved to a list. This protects our bots!
+running_tasks = []
+
 @app.on_event("startup")
 async def startup_event():
     print("[STARTUP] Initializing systems...")
@@ -19,13 +24,18 @@ async def startup_event():
     # 1. Initialize SQLite tables
     init_db()
     
-    # 2. Fire up background cron loops (XP distribution, AI giveaway timers)
+    # 2. Fire up background cron loops
     start_scheduler()
     
-    # 3. Mount async worker integrations seamlessly into loop
+    # 3. Mount async worker integrations securely
     yt_monitor = YouTubeChatMonitor()
-    asyncio.create_task(yt_monitor.run())
-    asyncio.create_task(start_discord_bot())
+    
+    # Save them to the global list to protect them from the Garbage Collector
+    task1 = asyncio.create_task(yt_monitor.run())
+    task2 = asyncio.create_task(start_discord_bot())
+    
+    running_tasks.append(task1)
+    running_tasks.append(task2)
     
     print("[STARTUP] Web Admin Dashboard, YouTube Engine, and Discord Bot are active!")
 
