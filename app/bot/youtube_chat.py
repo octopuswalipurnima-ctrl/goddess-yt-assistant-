@@ -85,42 +85,49 @@ class YouTubeChatMonitor:
                     user.xp.level = new_level
                     print(f"[LOYALTY] {username} leveled up to Level {new_level}!")
 
-            # --- THE !LINK COMMAND SYSTEM ---
-            if message_text.strip().lower() == "!link":
-                # Find the user's secret code in the database
+            # --- THE CHAT COMMANDS SYSTEM ---
+            command_text = message_text.strip().lower()
+
+            # Command 1: !link (Get Discord Code)
+            if command_text == "!link":
                 link_record = db.query(DiscordLink).filter(DiscordLink.user_id == user.id).first()
                 if link_record:
                     reply_msg = f"@{username}, your secret Discord sync code is: {link_record.sync_code} — Go type /link in our Discord server!"
                     await self.send_message(reply_msg)
 
+            # Command 2: !stats (Check Balance & Level)
+            elif command_text == "!stats":
+                reply_msg = f"📊 @{username} | Level: {user.xp.level} | XP: {user.xp.current_xp} | Coins: 🪙 {user.coins.balance}"
+                await self.send_message(reply_msg)
+
             # 2. Log message to history
             if self.active_stream_id:
                 db.add(ChatLog(stream_id=self.active_stream_id, user_id=user.id, message=message_text))
             
+            # Save all the coin changes and XP to the database!
             db.commit()
 
             # 3. Pull recent chat logs context for Gemini
-            # Fixed the sorting syntax to work securely with SQLAlchemy
             recent_logs = db.query(ChatLog, User.username).join(User).order_by(ChatLog.id.desc())
             recent_msgs = [{"username": log.User.username, "text": log.ChatLog.message} for log in recent_logs[:15]]
             
             # --- THE 10% CO-HOST FEATURE ---
-            dice_roll = random.randint(1, 100)
-            if dice_roll <= 10:
-                print(f"[CO-HOST] 10% chance hit! Evaluating context for {username}...")
-                
-                # Custom stream persona injected into the brain
-                bgmi_context = [
-                    "You are a witty co-host for a BGMI gaming stream named Goddess Live.",
-                    "Keep replies short, engaging, and hype up the chat.",
-                    "If relevant to the conversation, you can drop subtle nods to playing with no gyroscope or maintaining clean AR recoil."
-                ]
-                
-                ai_comment = await self.ai.generate_chat_reaction(chat_context=bgmi_context, recent_messages=recent_msgs)
-                
-                if ai_comment:
-                    # Execute the physical message send!
-                    await self.send_message(ai_comment)
+            # Don't let the AI interrupt commands, only trigger on normal chat
+            if not command_text.startswith("!"):
+                dice_roll = random.randint(1, 100)
+                if dice_roll <= 10:
+                    print(f"[CO-HOST] 10% chance hit! Evaluating context for {username}...")
+                    
+                    bgmi_context = [
+                        "You are a witty co-host for a BGMI gaming stream named Goddess Live.",
+                        "Keep replies short, engaging, and hype up the chat.",
+                        "If relevant to the conversation, you can drop subtle nods to playing with no gyroscope or maintaining clean AR recoil."
+                    ]
+                    
+                    ai_comment = await self.ai.generate_chat_reaction(chat_context=bgmi_context, recent_messages=recent_msgs)
+                    
+                    if ai_comment:
+                        await self.send_message(ai_comment)
 
         except Exception as e:
             db.rollback()
