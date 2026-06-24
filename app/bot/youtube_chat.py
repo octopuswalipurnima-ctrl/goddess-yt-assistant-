@@ -85,6 +85,14 @@ class YouTubeChatMonitor:
                     user.xp.level = new_level
                     print(f"[LOYALTY] {username} leveled up to Level {new_level}!")
 
+            # --- THE !LINK COMMAND SYSTEM ---
+            if message_text.strip().lower() == "!link":
+                # Find the user's secret code in the database
+                link_record = db.query(DiscordLink).filter(DiscordLink.user_id == user.id).first()
+                if link_record:
+                    reply_msg = f"@{username}, your secret Discord sync code is: {link_record.sync_code} — Go type /link in our Discord server!"
+                    await self.send_message(reply_msg)
+
             # 2. Log message to history
             if self.active_stream_id:
                 db.add(ChatLog(stream_id=self.active_stream_id, user_id=user.id, message=message_text))
