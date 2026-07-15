@@ -1,4 +1,4 @@
-from app.dashboard.auth 
+from app.dashboard.auth import router as auth_router
 import router as auth_routerimport asyncio
 from fastapi import FastAPI
 import uvicorn
