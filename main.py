@@ -1,4 +1,5 @@
-import asyncio
+from app.dashboard.auth 
+import router as auth_routerimport asyncio
 from fastapi import FastAPI
 import uvicorn
 from app.database.connection import init_db
@@ -11,6 +12,7 @@ app = FastAPI(title="Goddess Stream Manager")
 
 # Mount our dashboard panel routers
 app.include_router(dashboard_router)
+app.include_router(auth_router)
 
 # --- THE FIX: We must store our background tasks safely ---
 # Python 3.12 will forcefully "clean up" and kill any async tasks 
