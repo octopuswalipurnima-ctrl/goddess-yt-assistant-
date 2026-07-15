@@ -10,7 +10,7 @@ router = APIRouter()
 
 # The exact URL Google will send them back to after they log in
 # Make sure to change YOUR_RAILWAY_URL to your actual live URL!
-REDIRECT_URI = goddess-yt-assistant-production.up.railway.app
+REDIRECT_URI = "https://goddess-yt-assistant-production.up.railway.app"
 
 @router.get("/login")
 async def login_with_youtube():
@@ -37,8 +37,8 @@ async def auth_callback(code: str, db: Session = Depends(get_db)):
     response = requests.post("https://oauth2.googleapis.com/token", data=token_data)
     tokens = response.json()
 
-     refresh_token = tokens.get("refresh_token")
-     access_token = tokens.get("access_token")
+    refresh_token = tokens.get("refresh_token")
+    access_token = tokens.get("access_token")
 
     if not refresh_token:
         return {"error": "Google didn't send a refresh token. Try logging in again!"}
