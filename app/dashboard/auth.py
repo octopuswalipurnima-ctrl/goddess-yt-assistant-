@@ -37,8 +37,8 @@ async def auth_callback(code: str, db: Session = Depends(get_db)):
     response = requests.post("https://oauth2.googleapis.com/token", data=token_data)
     tokens = response.json()
 
-    refresh_token = tokens.get(1//04QGLAMjN0TEcCgYIARAAGAQSNwF-L9IrQh0ALWFztlpFdxKvlepaZgfOppiAIgJ_7ukiRaUOHfJwdCOx8S13f5XXPcnoB51dOvk)
-    access_token = tokens.get("access_token")
+     refresh_token = tokens.get("refresh_token")
+     access_token = tokens.get("access_token")
 
     if not refresh_token:
         return {"error": "Google didn't send a refresh token. Try logging in again!"}
