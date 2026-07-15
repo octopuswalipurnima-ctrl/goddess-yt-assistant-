@@ -11,7 +11,6 @@ from app.utils.config import Config
 
 class YouTubeChatMonitor:
     def __init__(self):
-        # 1. The secure OAuth connection replaces the old developerKey
         self.credentials = Credentials(
             token=None,
             refresh_token=Config.YOUTUBE_REFRESH_TOKEN,
@@ -23,6 +22,16 @@ class YouTubeChatMonitor:
         self.ai = AIBrain()
         self.active_stream_id = None
         self.live_chat_id = None
+        
+        # --- NEW: Level 2 Mod Target List ---
+        self.watched_users = set()
+
+        # --- NEW: Level 1 Static Banned Words ---
+        self.banned_words = {
+            "mc", "bc", "bsdk", "mkc", "chutiya", "gandu", 
+            "bitch", "fuck", "asshole", "madarchod", "bhenchod",
+            "nigga", "nigger", "slut", "whore"
+        }
 
     async def send_message(self, text):
         """Physically types a message into the YouTube live chat."""
@@ -36,9 +45,7 @@ class YouTubeChatMonitor:
                     "snippet": {
                         "liveChatId": self.live_chat_id,
                         "type": "textMessageEvent",
-                        "textMessageDetails": {
-                            "messageText": text
-                        }
+                        "textMessageDetails": {"messageText": text}
                     }
                 }
             )
@@ -47,85 +54,108 @@ class YouTubeChatMonitor:
         except Exception as e:
             print(f"[YOUTUBE SEND ERROR]: {e}")
 
+    async def delete_message(self, message_id):
+        """Deletes a specific toxic message from the YouTube live chat."""
+        if not message_id:
+            return
+        try:
+            self.youtube.liveChatMessages().delete(id=message_id).execute()
+            print(f"[MODERATION] Successfully deleted message ID: {message_id}")
+        except Exception as e:
+            print(f"[YOUTUBE DELETE ERROR]: {e}")
+
     def calculate_level_up(self, current_xp: int, current_level: int) -> int:
-        """Progressively harder leveling formula: XP needed = level * 150"""
         xp_needed = current_level * 150
         if current_xp >= xp_needed:
             return current_level + 1
         return current_level
 
-    async def process_message(self, yt_user_id: str, username: str, message_text: str):
-        """Processes a chat message: Updates viewer account, XP, coins, and checks AI triggers."""
+    # Added message_id parameter so we know which message to delete!
+    async def process_message(self, yt_user_id: str, username: str, message_text: str, message_id: str = None):
+        """Processes chat, runs the 3-Tier moderation, and updates DB."""
         db = SessionLocal()
         try:
-            # 1. Fetch or create master user
+            # -----------------------------------------
+            # MODERATION TIER 1: The Static Wall
+            # -----------------------------------------
+            text_words = message_text.lower().split()
+            if any(word in text_words for word in self.banned_words):
+                await self.delete_message(message_id)
+                print(f"🚫 [LEVEL 1 BAN] {username} used a banned word.")
+                return # Stop completely, do not give them XP or Coins
+
+            # --- MOD COMMANDS ---
+            command_text = message_text.strip().lower()
+            if command_text.startswith("!watch "):
+                target = message_text.split("@")[-1].strip()
+                self.watched_users.add(target.lower())
+                await self.send_message(f"👁️ Goddess AI is now closely monitoring {target}.")
+                return
+            elif command_text.startswith("!unwatch "):
+                target = message_text.split("@")[-1].strip()
+                self.watched_users.discard(target.lower())
+                await self.send_message(f"✅ Goddess AI has stopped monitoring {target}.")
+                return
+
+            # -----------------------------------------
+            # MODERATION TIER 2 & 3: Smart Pre-Filter & AI Scan
+            # -----------------------------------------
+            is_watched = username.lower() in self.watched_users
+            
+            # Only send to AI if it's a full sentence (3+ words) OR if the user is watched
+            if len(text_words) >= 3 or is_watched:
+                eval_result = await self.ai.evaluate_for_moderation(username, message_text)
+                if eval_result.get("flagged"):
+                    await self.delete_message(message_id)
+                    print(f"🤖 [LEVEL 3 AI BAN] {username}: {eval_result.get('reason')}")
+                    return # Stop completely, toxic message deleted
+
+            # -----------------------------------------
+            # REWARDS & ECONOMY (Only runs if they survive moderation)
+            # -----------------------------------------
             user = db.query(User).filter(User.youtube_id == yt_user_id).first()
             if not user:
                 user = User(youtube_id=yt_user_id, username=username)
                 db.add(user)
-                db.flush() # Generates user.id
+                db.flush() 
 
-                # Init XP & Coins systems
                 db.add(XP(user_id=user.id, current_xp=10, level=1, total_messages=1))
                 db.add(Coin(user_id=user.id, balance=50, lifetime_earned=50))
-                
-                # Generate unique link code for Discord
-                sync_code = f"GODDESS-{secrets.token_hex(2).upper()}"
-                db.add(DiscordLink(user_id=user.id, sync_code=sync_code))
+                db.add(DiscordLink(user_id=user.id, sync_code=f"GODDESS-{secrets.token_hex(2).upper()}"))
             else:
                 user.last_seen = datetime.now(timezone.utc)
-                user.xp.current_xp += 15 # +15 XP per message
+                user.xp.current_xp += 15 
                 user.xp.total_messages += 1
-                user.coins.balance += 5  # +5 Coins per message
+                user.coins.balance += 5  
                 user.coins.lifetime_earned += 5
                 
-                # Check for Level Up
                 new_level = self.calculate_level_up(user.xp.current_xp, user.xp.level)
                 if new_level > user.xp.level:
                     user.xp.level = new_level
                     print(f"[LOYALTY] {username} leveled up to Level {new_level}!")
 
-            # --- THE CHAT COMMANDS SYSTEM ---
-            command_text = message_text.strip().lower()
-
-            # Command 1: !link (Get Discord Code)
+            # Check Standard Commands
             if command_text == "!link":
                 link_record = db.query(DiscordLink).filter(DiscordLink.user_id == user.id).first()
                 if link_record:
-                    reply_msg = f"@{username}, your secret Discord sync code is: {link_record.sync_code} — Go type /link in our Discord server!"
-                    await self.send_message(reply_msg)
+                    await self.send_message(f"@{username}, your Discord code is: {link_record.sync_code}")
 
-            # Command 2: !stats (Check Balance & Level)
             elif command_text == "!stats":
-                reply_msg = f"📊 @{username} | Level: {user.xp.level} | XP: {user.xp.current_xp} | Coins: 🪙 {user.coins.balance}"
-                await self.send_message(reply_msg)
+                await self.send_message(f"📊 @{username} | Level: {user.xp.level} | Coins: 🪙 {user.coins.balance}")
 
-            # 2. Log message to history
+            # Save Message and DB Data
             if self.active_stream_id:
                 db.add(ChatLog(stream_id=self.active_stream_id, user_id=user.id, message=message_text))
-            
-            # Save all the coin changes and XP to the database!
             db.commit()
 
-            # 3. Pull recent chat logs context for Gemini
-            recent_logs = db.query(ChatLog, User.username).join(User).order_by(ChatLog.id.desc())
-            recent_msgs = [{"username": log.User.username, "text": log.ChatLog.message} for log in recent_logs[:15]]
-            
-            # --- THE 10% CO-HOST FEATURE ---
-            # Don't let the AI interrupt commands, only trigger on normal chat
+            # The 10% Co-Host Trigger
             if not command_text.startswith("!"):
-                dice_roll = random.randint(1, 100)
-                if dice_roll <= 10:
-                    print(f"[CO-HOST] 10% chance hit! Evaluating context for {username}...")
+                if random.randint(1, 100) <= 10:
+                    recent_logs = db.query(ChatLog, User.username).join(User).order_by(ChatLog.id.desc())
+                    recent_msgs = [{"username": log.User.username, "text": log.ChatLog.message} for log in recent_logs[:15]]
                     
-                    bgmi_context = [
-                        "You are a witty co-host for a BGMI gaming stream named Goddess Live.",
-                        "Keep replies short, engaging, and hype up the chat.",
-                        "If relevant to the conversation, you can drop subtle nods to playing with no gyroscope or maintaining clean AR recoil."
-                    ]
-                    
+                    bgmi_context = ["You are a witty co-host for Goddess Live.", "Keep replies short."]
                     ai_comment = await self.ai.generate_chat_reaction(chat_context=bgmi_context, recent_messages=recent_msgs)
-                    
                     if ai_comment:
                         await self.send_message(ai_comment)
 
@@ -136,12 +166,7 @@ class YouTubeChatMonitor:
             db.close()
 
     async def run(self):
-        """Simulates polling live chat data loop safely."""
-        print("[YOUTUBE DETECTOR] Scanning for active livestreams by Goddess...")
-        # Simulating finding a live window
+        print("[YOUTUBE DETECTOR] Scanning for active livestreams...")
         self.active_stream_id = 1
-        print("[YOUTUBE CONNECTED] Synchronized with YouTube Live Chat feed successfully.")
-        
         while True:
-            # Main polling execution sleep cycle
             await asyncio.sleep(10)
