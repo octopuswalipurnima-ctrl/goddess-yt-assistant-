@@ -5,7 +5,7 @@ import secrets
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from app.database.connection import SessionLocal
-from app.database.models import User, XP, Coin, ChatLog, StreamSession, DiscordLink
+from app.database.models import User, XP, Coin, ChatLog, DiscordLink
 from app.ai.generator import AIBrain
 from app.utils.config import Config
 
