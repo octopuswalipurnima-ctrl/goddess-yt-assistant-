@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from app.database.connection import SessionLocal
-from app.database.models import DiscordLink, User
+from app.database.models import DiscordLink, User, XP, Coin, Streamer
 from app.utils.config import Config
 
 class GoddessDiscordBot(discord.Client):
@@ -28,13 +28,13 @@ async def link_account(interaction: discord.Interaction, code: str):
             await interaction.response.send_message("❌ Invalid sync code. Check your spelling or chat on stream to update.", ephemeral=True)
             return
         
-        if link_record.is_linked:
+        # UPGRADED: SaaS Database checks if the discord_id column is already filled
+        if link_record.discord_id:
             await interaction.response.send_message("⚠️ This code has already been successfully claimed.", ephemeral=True)
             return
 
         # Bind Discord ID to our user profile record
         link_record.discord_id = str(interaction.user.id)
-        link_record.is_linked = True
         db.commit()
         
         await interaction.response.send_message(f"✅ Success! Connected your Discord profile to stream user: **{link_record.user.username}**.", ephemeral=True)
@@ -49,16 +49,32 @@ async def view_profile(interaction: discord.Interaction):
     db = SessionLocal()
     try:
         link_record = db.query(DiscordLink).filter(DiscordLink.discord_id == str(interaction.user.id)).first()
-        if not link_record or not link_record.is_linked:
+        if not link_record:
             await interaction.response.send_message("❌ Your account is not linked yet. Use `/link [your-code]` first!", ephemeral=True)
             return
 
         user = link_record.user
-        embed = discord.Embed(title=f"👑 Goddess Squad Profile: {user.username}", color=discord.Color.gold())
-        embed.add_field(name="✨ Level", value=str(user.xp.level), inline=True)
-        embed.add_field(name="📊 Total XP", value=f"{user.xp.current_xp} XP", inline=True)
-        embed.add_field(name="🪙 Coin Balance", value=f"{user.coins.balance} Coins", inline=True)
-        embed.set_footer(text="Keep watching Goddess streams to earn more levels and rewards!")
+        embed = discord.Embed(title=f"👑 Goddess SaaS Profile: {user.username}", color=discord.Color.gold())
+        
+        # UPGRADED: Dynamically loop through every channel the user has earned XP in!
+        if not user.xps:
+            embed.add_field(name="Status", value="No stats recorded yet. Start chatting in a supported stream!", inline=False)
+        else:
+            for xp in user.xps:
+                # Get the channel name safely
+                channel_name = xp.streamer.channel_name if xp.streamer else "Unknown Channel"
+                
+                # Find matching coins for this specific streamer
+                coin_record = next((c for c in user.coins if c.streamer_id == xp.streamer_id), None)
+                coin_balance = coin_record.balance if coin_record else 0
+
+                embed.add_field(
+                    name=f"📺 {channel_name}", 
+                    value=f"**Level:** {xp.level} | **XP:** {xp.current_xp} | **Coins:** 🪙 {coin_balance}", 
+                    inline=False
+                )
+        
+        embed.set_footer(text="Keep watching connected streams to earn more levels and rewards!")
         
         await interaction.response.send_message(embed=embed)
     finally:
