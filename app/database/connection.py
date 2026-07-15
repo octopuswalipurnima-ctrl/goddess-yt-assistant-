@@ -1,24 +1,29 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.utils.config import Config
-from app.database.models import Base
+from sqlalchemy.ext.declarative import declarative_base
 
-# Create the SQLite engine
-engine = create_engine(Config.DATABASE_URL, connect_args={"check_same_thread": False})
+# 1. Create the Database Engine
+SQLALCHEMY_DATABASE_URL = "sqlite:///./goddess.db"
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 
-# Create a session factory
+# 2. Create the Session Factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# 3. Define the Base class (models.py imports this!)
+Base = declarative_base()
+
 def init_db():
-    """Builds all the tables if they don't exist yet."""
+    # --- THE FIX: Break the Circular Import ---
+    # We import the models down here INSIDE the function. 
+    # This guarantees connection.py is fully loaded before it asks for models.py
+    from app.database.models import Streamer, User, XP, Coin, ChatLog, DiscordLink
+    
+    # Generate all the new SaaS tables
     Base.metadata.create_all(bind=engine)
-    print("Database initialized successfully.")
 
 def get_db():
-    """Opens a database session and closes it safely when done."""
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-        
