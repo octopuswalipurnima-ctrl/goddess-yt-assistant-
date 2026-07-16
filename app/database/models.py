@@ -17,10 +17,17 @@ class Streamer(Base):
     is_active = Column(Boolean, default=True)
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # --- DASHBOARD & DISCORD SETTINGS ---
+    ai_cohost_enabled = Column(Boolean, default=True)
+    giveaway_reminders_enabled = Column(Boolean, default=False)
+    discord_guild_id = Column(String, nullable=True)
+    discord_log_channel_id = Column(String, nullable=True)
+
     # Linking the streamer to their channel's data
     xps = relationship("XP", back_populates="streamer")
     coins = relationship("Coin", back_populates="streamer")
     chat_logs = relationship("ChatLog", back_populates="streamer")
+
 
 # --- The Viewer Table (Global Identity) ---
 class User(Base):
@@ -38,6 +45,7 @@ class User(Base):
     chat_logs = relationship("ChatLog", back_populates="user")
     discord_links = relationship("DiscordLink", back_populates="user")
 
+
 # --- Channel-Specific Stats (Multi-Tenant) ---
 class XP(Base):
     __tablename__ = "xp"
@@ -53,6 +61,7 @@ class XP(Base):
     user = relationship("User", back_populates="xps")
     streamer = relationship("Streamer", back_populates="xps")
 
+
 class Coin(Base):
     __tablename__ = "coins"
     
@@ -65,6 +74,7 @@ class Coin(Base):
 
     user = relationship("User", back_populates="coins")
     streamer = relationship("Streamer", back_populates="coins")
+
 
 # --- Channel Logs & Links ---
 class ChatLog(Base):
@@ -79,6 +89,7 @@ class ChatLog(Base):
 
     user = relationship("User", back_populates="chat_logs")
     streamer = relationship("Streamer", back_populates="chat_logs")
+
 
 class DiscordLink(Base):
     __tablename__ = "discord_links"

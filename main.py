@@ -11,7 +11,8 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy.orm import Session
 
 from app.database.connection import init_db, get_db
-from app.database.models import User, XP
+# Added Streamer to the imports to read/write settings
+from app.database.models import User, XP, Streamer
 from app.dashboard.auth import router as auth_router
 from app.dashboard.routes import router as dashboard_router
 from app.bot.youtube_chat import YouTubeChatMonitor
@@ -53,44 +54,69 @@ templates = Jinja2Templates(directory="templates")
 
 
 # ---------------------------------------------------------
-# FRONTEND DASHBOARD ROUTES (FIXED TEMPLATE ARGS)
+# FRONTEND DASHBOARD ROUTES (UPGRADED WITH DATABASE SETTINGS)
 # ---------------------------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     streamer_id = request.session.get("streamer_id")
-    streamer_name = request.session.get("streamer_name")
-    
-    print(f"[DASHBOARD ROOT ACCESS] streamer_id: {streamer_id} | streamer_name: {streamer_name}", flush=True)
-    
-    settings = {
-        "ai_cohost_enabled": True,
-        "giveaway_reminders_enabled": False
-    }
     
     if not streamer_id:
         return templates.TemplateResponse(
-            request=request,
+            request=request, 
             name="index.html", 
             context={
-                "request": request,
-                "streamer_name": None,
-                "viewers": [],
-                "settings": settings
+                "request": request, 
+                "streamer_name": None, 
+                "viewers": [], 
+                "settings": {}
             }
         )
         
+    # Fetch the active streamer's specific settings from the database
+    streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
     viewers = db.query(User).join(XP).filter(XP.streamer_id == streamer_id).all()
     
+    settings = {
+        "ai_cohost_enabled": streamer.ai_cohost_enabled if streamer else True,
+        "giveaway_reminders_enabled": streamer.giveaway_reminders_enabled if streamer else False,
+        "discord_guild_id": streamer.discord_guild_id if streamer else "",
+        "discord_log_channel_id": streamer.discord_log_channel_id if streamer else ""
+    }
+    
     return templates.TemplateResponse(
-        request=request,
+        request=request, 
         name="index.html", 
         context={
             "request": request,
-            "streamer_name": streamer_name,
+            "streamer_name": streamer.channel_name if streamer else None,
             "viewers": viewers,
             "settings": settings
         }
     )
+
+@app.post("/toggle-setting")
+async def toggle_setting(request: Request, setting: str = Form(...), db: Session = Depends(get_db)):
+    streamer_id = request.session.get("streamer_id")
+    if streamer_id:
+        streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+        if streamer:
+            if setting == "ai_cohost":
+                streamer.ai_cohost_enabled = not streamer.ai_cohost_enabled
+            elif setting == "giveaways":
+                streamer.giveaway_reminders_enabled = not streamer.giveaway_reminders_enabled
+            db.commit()
+    return RedirectResponse(url="/", status_code=303)
+
+@app.post("/update-discord")
+async def update_discord(request: Request, guild_id: str = Form(""), channel_id: str = Form(""), db: Session = Depends(get_db)):
+    streamer_id = request.session.get("streamer_id")
+    if streamer_id:
+        streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+        if streamer:
+            streamer.discord_guild_id = guild_id
+            streamer.discord_log_channel_id = channel_id
+            db.commit()
+    return RedirectResponse(url="/", status_code=303)
 
 
 # ---------------------------------------------------------
@@ -98,17 +124,6 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
 # ---------------------------------------------------------
 app.include_router(dashboard_router)
 app.include_router(auth_router)
-
-
-@app.post("/toggle-ai")
-async def toggle_ai(mode: str = Form(...)):
-    print(f"[DASHBOARD ACTION] Toggled setting: {mode}")
-    return RedirectResponse(url="/", status_code=303)
-
-@app.post("/manual-announcement")
-async def manual_announcement(message: str = Form(...)):
-    print(f"[DASHBOARD ACTION] Sending manual announcement: {message}")
-    return RedirectResponse(url="/", status_code=303)
 
 
 # ---------------------------------------------------------
