@@ -35,7 +35,7 @@ class YouTubeChatMonitor:
         self.next_page_tokens = {} # Format: {live_chat_id: next_page_token}
         
         # --- Escalating AI Monitor ---
-        self.monitored_users = {} # Format: {clean_username: {"yt_user_id": str, "strikes": 0, "last_checked": datetime}}
+        self.monitored_users = {} 
         self.is_ai_active = True
         
         self.spam_tracker = {}
@@ -137,6 +137,68 @@ class YouTubeChatMonitor:
 
 
     # ---------------------------------------------------------
+    # DONATION & MEMBERSHIP PROCESSOR
+    # ---------------------------------------------------------
+    async def handle_support_event(self, event_type: str, snippet: dict, author_name: str, yt_user_id: str, streamer_id: int, live_chat_id: str):
+        """Thanks users for financial support and deposits bonus coins into their account."""
+        db = SessionLocal()
+        try:
+            # 1. Ensure the user exists in the database
+            user = db.query(User).filter(User.youtube_id == yt_user_id).first()
+            if not user:
+                user = User(youtube_id=yt_user_id, username=author_name)
+                db.add(user)
+                db.flush() 
+                db.add(XP(user_id=user.id, streamer_id=streamer_id, current_xp=0, level=1, total_messages=0))
+                db.add(Coin(user_id=user.id, balance=0, lifetime_earned=0))
+                db.add(DiscordLink(user_id=user.id, sync_code=f"GODDESS-{secrets.token_hex(2).upper()}"))
+                db.commit()
+
+            message = ""
+            coin_bonus = 0
+
+            # 2. Parse the specific event type
+            if event_type == "superChatEvent":
+                amount = snippet.get("superChatDetails", {}).get("displayString", "a Super Chat")
+                message = f"🎉 WOW! Thank you so much @{author_name} for the {amount}! You are amazing!"
+                coin_bonus = 500
+                
+            elif event_type == "superStickerEvent":
+                amount = snippet.get("superStickerDetails", {}).get("displayString", "a Super Sticker")
+                message = f"💖 Thank you @{author_name} for the {amount} Super Sticker!"
+                coin_bonus = 300
+                
+            elif event_type == "newSponsorEvent":
+                message = f"🎊 Welcome to the VIP family, @{author_name}! Thank you for becoming a member!"
+                coin_bonus = 1000
+                
+            elif event_type == "membershipGiftingEvent":
+                count = snippet.get("membershipGiftingDetails", {}).get("giftMembershipsCount", 1)
+                message = f"🎁 INCREDIBLE! @{author_name} just gifted {count} memberships to the chat! Legend!"
+                coin_bonus = 1000 * count
+                
+            elif event_type == "memberMilestoneChatEvent":
+                months = snippet.get("memberMilestoneChatDetails", {}).get("memberMonth", 2)
+                message = f"🎂 Happy {months} month membership anniversary, @{author_name}! Thanks for the continued support!"
+                coin_bonus = 500
+
+            # 3. Apply the bonus coins and send the message
+            if coin_bonus > 0 and user.coins:
+                user.coins[0].balance += coin_bonus
+                user.coins[0].lifetime_earned += coin_bonus
+                db.commit()
+
+            if message:
+                await self.send_message(message, live_chat_id)
+                
+        except Exception as e:
+            db.rollback()
+            print(f"[DONATION ERROR] {e}")
+        finally:
+            db.close()
+
+
+    # ---------------------------------------------------------
     # CORE MESSAGE PROCESSOR
     # ---------------------------------------------------------
     async def process_message(self, yt_user_id: str, username: str, message_text: str, message_id: str, streamer_id: int, live_chat_id: str, is_mod: bool):
@@ -150,7 +212,7 @@ class YouTubeChatMonitor:
             command_text = message_text.strip().lower()
 
             # -----------------------------------------
-            # NEW: MODERATOR COMMANDS
+            # MODERATOR COMMANDS
             # -----------------------------------------
             if is_mod and command_text.startswith("!"):
                 parts = command_text.split(" ")
@@ -184,7 +246,7 @@ class YouTubeChatMonitor:
                 elif command == "!monitor" and args:
                     target_user = args[0].lower().replace("@", "")
                     self.monitored_users[target_user] = {
-                        "yt_user_id": None, # Will populate when they speak
+                        "yt_user_id": None, 
                         "strikes": 0,
                         "last_checked": datetime.min.replace(tzinfo=timezone.utc)
                     }
@@ -238,12 +300,9 @@ class YouTubeChatMonitor:
                 user_data = self.monitored_users[clean_username]
                 now = datetime.now(timezone.utc)
                 
-                # Save their ID so we can ban/timeout if necessary
                 user_data["yt_user_id"] = yt_user_id
-                
                 time_since_last_check = (now - user_data["last_checked"]).total_seconds()
                 
-                # 5-MINUTE COOLDOWN CHECK
                 if time_since_last_check >= 300: 
                     user_data["last_checked"] = now
                     
@@ -302,7 +361,6 @@ class YouTubeChatMonitor:
             else:
                 user.last_seen = datetime.now(timezone.utc)
                 
-                # Fetch their specific XP profile for THIS streamer
                 xp_profile = db.query(XP).filter(XP.user_id == user.id, XP.streamer_id == streamer_id).first()
                 if not xp_profile:
                     xp_profile = XP(user_id=user.id, streamer_id=streamer_id, current_xp=0, level=1, total_messages=0)
@@ -311,7 +369,6 @@ class YouTubeChatMonitor:
                 xp_profile.current_xp += 15 
                 xp_profile.total_messages += 1
                 
-                # Coins are global across the platform
                 user.coins[0].balance += 5  
                 user.coins[0].lifetime_earned += 5
                 
@@ -342,7 +399,6 @@ class YouTubeChatMonitor:
     # MULTI-TENANT ENGINE & API QUOTA MANAGER
     # ---------------------------------------------------------
     def get_chat_from_video(self, video_id: str):
-        # This costs ONLY 1 Quota Unit!
         try:
             res = self.youtube.videos().list(
                 part="snippet,liveStreamingDetails",
@@ -369,23 +425,20 @@ class YouTubeChatMonitor:
         while True:
             db = SessionLocal()
             try:
-                # 1. Did Discord detect any new YouTube links?
                 videos_to_check = list(DETECTED_VIDEOS)
-                DETECTED_VIDEOS.clear() # Clear it so we don't double-check
+                DETECTED_VIDEOS.clear() 
                 
                 for video_id in videos_to_check:
                     print(f"[QUOTA MANAGER] Discord found a link! Verifying Video ID: {video_id}")
                     channel_id, chat_id = self.get_chat_from_video(video_id)
                     
                     if channel_id and chat_id:
-                        # 2. Check if this channel belongs to a registered streamer
                         streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == channel_id, Streamer.is_active == True).first()
                         
                         if streamer and streamer.id not in self.active_streams:
                             self.active_streams[streamer.id] = chat_id
                             print(f"[LIVE] 🟢 Connected to {streamer.channel_name}'s stream!")
                 
-                # 3. Pull chat for active streams (Costs 1 unit)
                 active_streamer_ids = list(self.active_streams.keys())
                 for streamer_id in active_streamer_ids:
                     chat_id = self.active_streams[streamer_id]
@@ -401,24 +454,38 @@ class YouTubeChatMonitor:
                         self.next_page_tokens[chat_id] = response.get("nextPageToken")
                         
                         for item in response.get("items", []):
-                            msg_text = item["snippet"]["textMessageDetails"]["messageText"]
+                            snippet = item["snippet"]
+                            event_type = snippet["type"]
+                            
                             author_details = item["authorDetails"]
                             author_name = author_details["displayName"]
                             author_id = author_details["channelId"]
                             msg_id = item["id"]
                             
-                            # Determine if user is a mod/owner
                             is_mod = author_details.get("isChatModerator", False) or author_details.get("isChatOwner", False)
                             
-                            await self.process_message(
-                                yt_user_id=author_id, 
-                                username=author_name, 
-                                message_text=msg_text, 
-                                message_id=msg_id,
-                                streamer_id=streamer_id,
-                                live_chat_id=chat_id,
-                                is_mod=is_mod
-                            )
+                            # EVENT ROUTER
+                            if event_type == "textMessageEvent":
+                                msg_text = snippet["textMessageDetails"]["messageText"]
+                                await self.process_message(
+                                    yt_user_id=author_id, 
+                                    username=author_name, 
+                                    message_text=msg_text, 
+                                    message_id=msg_id,
+                                    streamer_id=streamer_id,
+                                    live_chat_id=chat_id,
+                                    is_mod=is_mod
+                                )
+                            elif event_type in ["superChatEvent", "superStickerEvent", "newSponsorEvent", "membershipGiftingEvent", "memberMilestoneChatEvent"]:
+                                await self.handle_support_event(
+                                    event_type=event_type,
+                                    snippet=snippet,
+                                    author_name=author_name,
+                                    yt_user_id=author_id,
+                                    streamer_id=streamer_id,
+                                    live_chat_id=chat_id
+                                )
+                                
                     except Exception as fetch_err:
                         print(f"[STREAM ENDED] 🔴 Disconnected from chat.")
                         del self.active_streams[streamer_id]
