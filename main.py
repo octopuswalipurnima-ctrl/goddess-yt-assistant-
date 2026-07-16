@@ -21,12 +21,11 @@ from app.services.scheduler import start_scheduler
 app = FastAPI(title="Goddess Stream Manager")
 
 # ---------------------------------------------------------
-# GLOBAL PRODUCTION PROXY & HTTPS ENFORCEMENT
+# MIDDLEWARE & BROWSER SESSIONS (STABILIZED COOKIE FLOW)
 # ---------------------------------------------------------
 # 1. Custom Middleware to force HTTPS scheme globally on Railway
 class ForceHTTPSMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # If running on Railway and the proxy forwarded it as HTTP, force HTTPS scope
         if "localhost" not in str(request.url) and request.headers.get("x-forwarded-proto") == "http":
             request.scope["scheme"] = "https"
         elif "localhost" not in str(request.url) and str(request.url).startswith("http://"):
@@ -38,14 +37,13 @@ app.add_middleware(ForceHTTPSMiddleware)
 # 2. Respect reverse proxy headers passed by Railway
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=("*",))
 
-# 3. Configure secure session tracking flags for browser cookies
-is_production = os.environ.get("PORT") is not None
+# 3. Secure session tracking configuration
 app.add_middleware(
     SessionMiddleware, 
     secret_key="super-secret-goddess-key-change-later",
     max_age=3600 * 24 * 7,            # 7 Days persistence
-    https_only=is_production,          # Ensures secure cookie flags line up
-    same_site="lax"                    # Allows smooth authentication transitions
+    https_only=False,                  # FIXED: Prevents Starlette from dropping proxy cookies on redirect
+    same_site="lax"                    # Allows smooth authorization transitions
 )
 
 # AUTOMATIC SAFEGUARD: Creates folders if Git missed them
