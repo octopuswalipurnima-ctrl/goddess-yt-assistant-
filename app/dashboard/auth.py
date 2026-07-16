@@ -21,12 +21,22 @@ oauth.register(
 
 @router.get("/login")
 async def login(request: Request):
-    # With ProxyHeadersMiddleware, request.url_for automatically generates the correct https:// URL
+    # 1. Generate the base callback URL
     redirect_uri = str(request.url_for('auth_callback'))
+    
+    # 2. FORCE HTTPS: If running on Railway (not localhost), override it to secure HTTPS
+    if "localhost" not in redirect_uri and redirect_uri.startswith("http://"):
+        redirect_uri = redirect_uri.replace("http://", "https://")
+        
+    print(f"[AUTH ROUTE] Sending redirect_uri to Google: {redirect_uri}", flush=True)
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @router.get("/auth", name="auth_callback")
 async def auth_callback(request: Request, db: Session = Depends(get_db)):
+    # Force the internal request scheme to match what Google sends back
+    if "localhost" not in str(request.url) and str(request.url).startswith("http://"):
+        request.scope["scheme"] = "https"
+        
     try:
         token = await oauth.google.authorize_access_token(request)
         userinfo = token.get('userinfo')
@@ -54,7 +64,6 @@ async def auth_callback(request: Request, db: Session = Depends(get_db)):
         print(f"[AUTH ERROR] Failed to log in: {e}", flush=True)
         traceback.print_exc()
         
-    # status_code=303 ensures the browser cleanly redirects without repeating the auth payload
     return RedirectResponse(url="/", status_code=303)
 
 @router.get("/logout")
