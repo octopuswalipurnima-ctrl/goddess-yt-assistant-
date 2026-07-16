@@ -34,6 +34,7 @@ class YouTubeChatMonitor:
         # --- Multi-Tenant Trackers ---
         self.active_streams = {}  
         self.next_page_tokens = {} 
+        self.stream_modes = {} # Tracks if a stream is 'guest' or 'premium'
         
         # --- Escalating AI Monitor ---
         self.monitored_users = {} 
@@ -109,8 +110,7 @@ class YouTubeChatMonitor:
     # BATTLE ROYALE BACKGROUND ENGINE
     # ---------------------------------------------------------
     async def run_br_game(self, live_chat_id: str):
-        """Autonomous background loop that handles the Battle Royale progression."""
-        await asyncio.sleep(45) # 45 seconds for players to join
+        await asyncio.sleep(45) 
         
         game = self.br_games.get(live_chat_id)
         if not game or len(game['players']) < 2:
@@ -122,25 +122,22 @@ class YouTubeChatMonitor:
         await self.send_message(f"⚔️ BATTLE ROYALE BEGINS! {len(game['players'])} players drop in. May the best viewer win!", live_chat_id)
 
         while True:
-            await asyncio.sleep(15) # Wait 15 seconds between eliminations
+            await asyncio.sleep(15) 
             
             alive = [uid for uid, data in game['players'].items() if data['lives'] > 0]
             if len(alive) <= 1: break
 
-            # 25% chance to drop an Extra Life Buff
             if random.random() < 0.25:
                 game['airdrop'] = True
                 await self.send_message("🪂 AN AIRDROP HAS APPEARED! First alive player to type '!claim airdrop' gets an extra life!", live_chat_id)
-                await asyncio.sleep(10) # 10 seconds to claim
+                await asyncio.sleep(10) 
                 if game['airdrop']:
-                    game['airdrop'] = False # Nobody claimed it
+                    game['airdrop'] = False 
                     await self.send_message("💨 The airdrop was lost to the zone...", live_chat_id)
 
-            # Re-check alive after airdrop wait
             alive = [uid for uid, data in game['players'].items() if data['lives'] > 0]
             if len(alive) <= 1: break
 
-            # Eliminate a random player
             victim_id = random.choice(alive)
             game['players'][victim_id]['lives'] -= 1
             v_name = game['players'][victim_id]['name']
@@ -151,14 +148,12 @@ class YouTubeChatMonitor:
                 death_msg = random.choice(["was sniped from across the map", "stepped on a landmine", "fell to the zone", "was eliminated by Goddess AI", "got ambushed in a bush"])
                 await self.send_message(f"☠️ @{v_name} {death_msg}! {len(alive)-1} players remain.", live_chat_id)
 
-        # Crown the Winner
         alive = [uid for uid, data in game['players'].items() if data['lives'] > 0]
         if len(alive) == 1:
             winner_id = alive[0]
             winner_name = game['players'][winner_id]['name']
             prize = game['prize']
             
-            # Award the database coins
             db = SessionLocal()
             try:
                 user = db.query(User).filter(User.youtube_id == winner_id).first()
@@ -177,21 +172,11 @@ class YouTubeChatMonitor:
 
 
     # ---------------------------------------------------------
-    # DONATION & MEMBERSHIP PROCESSOR
+    # DONATION & MEMBERSHIP PROCESSOR (GUEST READY)
     # ---------------------------------------------------------
-    async def handle_support_event(self, event_type: str, snippet: dict, author_name: str, yt_user_id: str, streamer_id: int, live_chat_id: str):
-        db = SessionLocal()
+    async def handle_support_event(self, event_type: str, snippet: dict, author_name: str, yt_user_id: str, streamer_id, live_chat_id: str, is_guest: bool = False):
+        db = SessionLocal() if not is_guest else None
         try:
-            user = db.query(User).filter(User.youtube_id == yt_user_id).first()
-            if not user:
-                user = User(youtube_id=yt_user_id, username=author_name)
-                db.add(user)
-                db.flush() 
-                db.add(XP(user_id=user.id, streamer_id=streamer_id, current_xp=0, level=1, total_messages=0))
-                db.add(Coin(user_id=user.id, balance=0, lifetime_earned=0))
-                db.add(DiscordLink(user_id=user.id, sync_code=f"GODDESS-{secrets.token_hex(2).upper()}"))
-                db.commit()
-
             message = ""
             coin_bonus = 0
 
@@ -215,36 +200,68 @@ class YouTubeChatMonitor:
                 message = f"🎂 Happy {months} month membership anniversary, @{author_name}! Thanks for the continued support!"
                 coin_bonus = 500
 
-            if coin_bonus > 0 and user.coins:
-                user.coins[0].balance += coin_bonus
-                user.coins[0].lifetime_earned += coin_bonus
-                db.commit()
+            if not is_guest and coin_bonus > 0:
+                user = db.query(User).filter(User.youtube_id == yt_user_id).first()
+                if not user:
+                    user = User(youtube_id=yt_user_id, username=author_name)
+                    db.add(user)
+                    db.flush() 
+                    db.add(XP(user_id=user.id, streamer_id=streamer_id, current_xp=0, level=1, total_messages=0))
+                    db.add(Coin(user_id=user.id, balance=0, lifetime_earned=0))
+                    db.add(DiscordLink(user_id=user.id, sync_code=f"GODDESS-{secrets.token_hex(2).upper()}"))
+                    db.commit()
+
+                if user.coins:
+                    user.coins[0].balance += coin_bonus
+                    user.coins[0].lifetime_earned += coin_bonus
+                    db.commit()
 
             if message:
                 await self.send_message(message, live_chat_id)
+                
         except Exception as e:
-            db.rollback()
+            if not is_guest: db.rollback()
             print(f"[DONATION ERROR] {e}")
         finally:
-            db.close()
+            if not is_guest: db.close()
 
 
     # ---------------------------------------------------------
-    # CORE MESSAGE PROCESSOR
+    # CORE MESSAGE PROCESSOR (GUEST READY)
     # ---------------------------------------------------------
-    async def process_message(self, yt_user_id: str, username: str, message_text: str, message_id: str, streamer_id: int, live_chat_id: str, is_mod: bool):
-        db = SessionLocal()
+    async def process_message(self, yt_user_id: str, username: str, message_text: str, message_id: str, streamer_id, live_chat_id: str, is_mod: bool, is_guest: bool = False):
+        db = SessionLocal() if not is_guest else None
         try:
-            streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
-            webhook_url = streamer.discord_webhook_url if streamer else None
-
             text_words = message_text.lower().split()
             clean_username = username.lower().replace("@", "")
             command_text = message_text.strip().lower()
 
-            # -----------------------------------------
+            # --- GUEST MODE OVERRIDE ---
+            if is_guest:
+                if is_mod and command_text.startswith("!"):
+                    parts = command_text.split(" ")
+                    cmd = parts[0]
+                    args = parts[1:]
+                    if cmd == "!so" and args:
+                        await self.send_message(f"🌟 Huge shoutout to {args[0].replace('@', '')}!", live_chat_id)
+                    elif cmd == "!giveaway" and args and args[0] == "start":
+                        await self.send_message("🎉 A giveaway has started! Type !join to enter!", live_chat_id)
+                        
+                if command_text.startswith("/goddess ") and is_mod:
+                    parts = command_text.split(" ", 2)
+                    if len(parts) >= 3:
+                        self.custom_commands[parts[1].lower()] = parts[2]
+                        await self.send_message(f"✅ Command '{parts[1].lower()}' is live!", live_chat_id)
+                elif command_text in self.custom_commands:
+                    await self.send_message(self.custom_commands[command_text], live_chat_id)
+                    
+                return # EXIT EARLY: No DB, No XP, No AI, No Games in Guest Mode.
+
+            # --- PREMIUM MODE LOGIC ---
+            streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+            webhook_url = streamer.discord_webhook_url if streamer else None
+
             # 1. MODERATOR COMMANDS
-            # -----------------------------------------
             if is_mod and command_text.startswith("!"):
                 parts = command_text.split(" ")
                 command = parts[0]
@@ -275,8 +292,6 @@ class YouTubeChatMonitor:
                         del self.monitored_users[target_user]
                         await self.send_message(f"🛑 AI has stopped monitoring {target_user}.", live_chat_id)
                     return
-                
-                # MOD BR TRIGGER
                 elif command == "!br" and args and args[0] == "start":
                     prize = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1000
                     if live_chat_id in self.br_games and self.br_games[live_chat_id]['state'] != 'ended':
@@ -288,9 +303,7 @@ class YouTubeChatMonitor:
                     asyncio.create_task(self.run_br_game(live_chat_id))
                     return
 
-            # -----------------------------------------
             # 2. AUTOMATED MODERATION (Spam & Words & AI)
-            # -----------------------------------------
             if any(word in text_words for word in self.banned_words):
                 await self.delete_message(message_id)
                 self.send_discord_log(webhook_url, "Banned Word Filter", username, message_text, "Hardcoded blocklist")
@@ -327,10 +340,7 @@ class YouTubeChatMonitor:
                             del self.monitored_users[clean_username]
                         return
 
-
-            # -----------------------------------------
             # 3. REWARDS & ECONOMY SETUP
-            # -----------------------------------------
             user = db.query(User).filter(User.youtube_id == yt_user_id).first()
             if not user:
                 user = User(youtube_id=yt_user_id, username=username)
@@ -354,14 +364,10 @@ class YouTubeChatMonitor:
                 new_level = self.calculate_level_up(xp_profile.current_xp, xp_profile.level)
                 if new_level > xp_profile.level: xp_profile.level = new_level
 
-
-            # -----------------------------------------
             # 4. VIEWER COMMANDS (Mini-Games & Stats)
-            # -----------------------------------------
             parts = command_text.split()
             cmd = parts[0] if parts else ""
 
-            # Standard Profile Commands
             if cmd == "!link":
                 link_record = db.query(DiscordLink).filter(DiscordLink.user_id == user.id).first()
                 if link_record: await self.send_message(f"@{username}, your Discord code is: {link_record.sync_code}", live_chat_id)
@@ -369,7 +375,6 @@ class YouTubeChatMonitor:
                 xp_prof = db.query(XP).filter(XP.user_id == user.id, XP.streamer_id == streamer_id).first()
                 await self.send_message(f"📊 @{username} | Level: {xp_prof.level} | Coins: 🪙 {user.coins[0].balance}", live_chat_id)
 
-            # 🎲 GAMBLE GAMES
             elif cmd in ["!flip", "!dice", "!spin"]:
                 if len(parts) < 2 or not parts[1].isdigit():
                     await self.send_message(f"❌ @{username}, specify an amount! (e.g., {cmd} 10)", live_chat_id)
@@ -378,7 +383,7 @@ class YouTubeChatMonitor:
                     if bet <= 0 or user.coins[0].balance < bet:
                         await self.send_message(f"❌ @{username}, you don't have enough coins for that bet!", live_chat_id)
                     else:
-                        user.coins[0].balance -= bet # Deduct bet immediately
+                        user.coins[0].balance -= bet 
                         
                         if cmd == "!flip":
                             choice = parts[2] if len(parts)>2 and parts[2] in ["heads", "tails"] else "heads"
@@ -416,7 +421,6 @@ class YouTubeChatMonitor:
                             else:
                                 await self.send_message(f"🎡 The wheel landed on {multiplier}x! @{username} walks away with 🪙 {win}!", live_chat_id)
 
-            # ⚔️ BATTLE ROYALE COMMANDS
             elif cmd == "!joinbr":
                 game = self.br_games.get(live_chat_id)
                 if game and game['state'] == 'waiting':
@@ -433,7 +437,6 @@ class YouTubeChatMonitor:
                         game['airdrop'] = False
                         await self.send_message(f"🪂 @{username} claimed the Airdrop! You now have {p['lives']} lives!", live_chat_id)
 
-
             # Custom Commands (Trigger Check)
             if command_text in self.custom_commands:
                 await self.send_message(self.custom_commands[command_text], live_chat_id)
@@ -442,10 +445,10 @@ class YouTubeChatMonitor:
             db.commit()
 
         except Exception as e:
-            db.rollback()
+            if not is_guest: db.rollback()
             print(f"Error processing chat message: {e}")
         finally:
-            db.close()
+            if not is_guest: db.close()
 
 
     # ---------------------------------------------------------
@@ -473,16 +476,32 @@ class YouTubeChatMonitor:
                 
                 for video_id in videos_to_check:
                     channel_id, chat_id = self.get_chat_from_video(video_id)
+                    
                     if channel_id and chat_id:
                         streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == channel_id, Streamer.is_active == True).first()
-                        if streamer and streamer.id not in self.active_streams:
-                            self.active_streams[streamer.id] = chat_id
-                            print(f"[LIVE] 🟢 Connected to {streamer.channel_name}'s stream!")
+                        
+                        stream_key = streamer.id if streamer else f"guest_{channel_id}"
+                        is_guest = streamer is None
+                        
+                        if stream_key not in self.active_streams:
+                            self.active_streams[stream_key] = chat_id
+                            self.stream_modes[stream_key] = "guest" if is_guest else "premium"
+                            
+                            mode_str = "🟡 GUEST" if is_guest else "🟢 PREMIUM"
+                            name = streamer.channel_name if streamer else f"Guest Stream ({channel_id})"
+                            print(f"[LIVE] {mode_str} Connected to {name}'s chat!")
+
+                            # --- NEW: MAKE THE BOT SAY HELLO WHEN IT JOINS ---
+                            if is_guest:
+                                await self.send_message("👋 Hello! Goddess AI (Guest Mode) has successfully connected to the chat!", chat_id)
+                            else:
+                                await self.send_message("🟢 Goddess AI system online and ready! Try typing !stats to view your coins.", chat_id)
                 
                 active_streamer_ids = list(self.active_streams.keys())
-                for streamer_id in active_streamer_ids:
-                    chat_id = self.active_streams[streamer_id]
+                for streamer_key in active_streamer_ids:
+                    chat_id = self.active_streams[streamer_key]
                     token = self.next_page_tokens.get(chat_id)
+                    is_guest = self.stream_modes.get(streamer_key) == "guest"
                     
                     try:
                         response = self.youtube.liveChatMessages().list(liveChatId=chat_id, part="snippet,authorDetails", pageToken=token).execute()
@@ -500,13 +519,15 @@ class YouTubeChatMonitor:
                             
                             if event_type == "textMessageEvent":
                                 msg_text = snippet["textMessageDetails"]["messageText"]
-                                await self.process_message(author_id, author_name, msg_text, msg_id, streamer_id, chat_id, is_mod)
+                                await self.process_message(author_id, author_name, msg_text, msg_id, streamer_key, chat_id, is_mod, is_guest)
                             elif event_type in ["superChatEvent", "superStickerEvent", "newSponsorEvent", "membershipGiftingEvent", "memberMilestoneChatEvent"]:
-                                await self.handle_support_event(event_type, snippet, author_name, author_id, streamer_id, chat_id)
+                                await self.handle_support_event(event_type, snippet, author_name, author_id, streamer_key, chat_id, is_guest)
                                 
                     except Exception as fetch_err:
                         print(f"[STREAM ENDED] 🔴 Disconnected from chat.")
-                        del self.active_streams[streamer_id]
+                        del self.active_streams[streamer_key]
+                        if streamer_key in self.stream_modes:
+                            del self.stream_modes[streamer_key]
 
             except Exception as e:
                 print(f"[CORE LOOP ERROR] {e}")
