@@ -1,65 +1,96 @@
-Goddess AI | Control Center
-    
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Goddess AI | Control Center</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="header">
+        <h1>👑 Goddess AI <span>Control Center</span></h1>
+    </div>
 
-
-    
-        👑 Goddess AI Control Center
-    
-
-    
-        
-        
-            🤖 AI System Controls
-            
-                
-                
+    <div class="grid">
+        <!-- Automation Card -->
+        <div class="card">
+            <h2>🤖 AI System Controls</h2>
+            <form action="/toggle-ai" method="post">
+                <input type="hidden" name="mode" value="ai_cohost_enabled">
+                <button type="submit">
                     Toggle Co-Host: 
-                    
+                    <span class="status {{ 'enabled' if settings.ai_cohost_enabled else 'disabled' }}">
                         {{ "ENABLED" if settings.ai_cohost_enabled else "DISABLED" }}
-                    
-                
-            
-            
-                
-                
+                    </span>
+                </button>
+            </form>
+            <form action="/toggle-ai" method="post">
+                <input type="hidden" name="mode" value="giveaway_reminders_enabled">
+                <button type="submit" style="background: #3f3f46;">
                     Toggle Giveaway Automations: 
-                    
+                    <span class="status {{ 'enabled' if settings.giveaway_reminders_enabled else 'disabled' }}">
                         {{ "ENABLED" if settings.giveaway_reminders_enabled else "DISABLED" }}
-                    
-                
-            
-        
+                    </span>
+                </button>
+            </form>
+        </div>
 
-        
-        
-            📢 Trigger Live Announcement
-            
+        <!-- Live Actions Card -->
+        <div class="card">
+            <h2>📢 Trigger Live Announcement</h2>
+            <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
                 Push a highlighted message directly into the YouTube live chat.
-            
-            
-                
-                Send to Stream Chat
-            
+            </p>
+            <form action="/manual-announcement" method="post">
+                <input type="text" name="message" placeholder="Type announcement here..." required>
+                <button type="submit">Send to Stream Chat</button>
+            </form>
+        </div>
         
-        
-        
-        
-            🏆 Viewer Loyalty & Economy Leaderboard
-            
+        <!-- Leaderboard Card -->
+        <div class="card" style="grid-column: 1 / -1;">
+            <h2>🏆 Viewer Loyalty & Economy Leaderboard</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Level</th>
+                        <th>Total XP</th>
+                        <th>Coin Balance</th>
+                    </tr>
+                </thead>
+                <tbody>
                     {% for viewer in viewers %}
-                    
+                    <tr>
+                        <td style="font-weight: 600;">{{ viewer.username }}</td>
+                        
+                        <!-- Safe fallback check for level/XP lists -->
+                        <td>
+                            {% if viewer.xps and viewer.xps|length > 0 %}
+                                {{ viewer.xps[0].level }}
+                            {% else %}
+                                1
+                            {% endif %}
+                        </td>
+                        <td style="color: var(--text-muted);">
+                            {% if viewer.xps and viewer.xps|length > 0 %}
+                                {{ viewer.xps[0].current_xp }} XP
+                            {% else %}
+                                0 XP
+                            {% endif %}
+                        </td>
+                        <td style="color: #fbbf24; font-weight: bold;">
+                            {% if viewer.coins and viewer.coins|length > 0 %}
+                                {{ viewer.coins[0].balance }} 🪙
+                            {% else %}
+                                0 🪙
+                            {% endif %}
+                        </td>
+                    </tr>
                     {% endfor %}
-                
-                
-                    
-                        Username
-                        Level
-                        Total XP
-                        Coin Balance
-                    
-                
-                
-                        {{ viewer.username }}
-                        {{ viewer.xp.level if viewer.xp else 1 }}
-                        {{ viewer.xp.current_xp if viewer.xp else 0 }} XP
-                        {{ viewer.coins.balance if viewer.coins else 0 }} 🪙
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
