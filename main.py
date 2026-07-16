@@ -55,7 +55,7 @@ templates = Jinja2Templates(directory="templates")
 
 
 # ---------------------------------------------------------
-# FRONTEND DASHBOARD ROUTES (UPGRADED SYNC CODE LOGIC)
+# FRONTEND DASHBOARD ROUTES (UPGRADED SESSION SAFEGUARD)
 # ---------------------------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
@@ -75,18 +75,26 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
         
     streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
     
+    # ---------------------------------------------------------
+    # ZOMBIE COOKIE FIX: If the DB was wiped, log the user out!
+    # ---------------------------------------------------------
+    if not streamer:
+        request.session.clear()
+        return RedirectResponse(url="/", status_code=303)
+    
     # Auto-generate a secure 6-digit sync code for Discord linking if one doesn't exist
-    if streamer and not streamer.server_sync_code:
+    if not streamer.server_sync_code:
         streamer.server_sync_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         db.commit()
         
     viewers = db.query(User).join(XP).filter(XP.streamer_id == streamer_id).all()
     
+    # Since we guarded against `None` above, we can safely pull variables directly!
     settings = {
-        "ai_cohost_enabled": streamer.ai_cohost_enabled if streamer else True,
-        "giveaway_reminders_enabled": streamer.giveaway_reminders_enabled if streamer else False,
-        "server_sync_code": streamer.server_sync_code if streamer else "",
-        "is_discord_linked": bool(streamer.discord_guild_id) # True if they completed the /setup command
+        "ai_cohost_enabled": streamer.ai_cohost_enabled,
+        "giveaway_reminders_enabled": streamer.giveaway_reminders_enabled,
+        "server_sync_code": streamer.server_sync_code,
+        "is_discord_linked": bool(streamer.discord_guild_id)
     }
     
     return templates.TemplateResponse(
@@ -94,7 +102,7 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
         name="index.html", 
         context={
             "request": request,
-            "streamer_name": streamer.channel_name if streamer else None,
+            "streamer_name": streamer.channel_name,
             "viewers": viewers,
             "settings": settings
         }
