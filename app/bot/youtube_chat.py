@@ -12,6 +12,7 @@ from app.database.connection import SessionLocal
 from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer
 from app.ai.generator import AIBrain
 from app.utils.config import Config
+from app.services.websocket import overlay_manager  # <-- NEW: OBS WebSocket Manager
 
 # ---------------------------------------------------------
 # SHARED MEMORY: Used to pass video links from Discord to YouTube
@@ -172,21 +173,22 @@ class YouTubeChatMonitor:
 
 
     # ---------------------------------------------------------
-    # DONATION & MEMBERSHIP PROCESSOR (GUEST READY)
+    # DONATION & MEMBERSHIP PROCESSOR (GUEST & OBS READY)
     # ---------------------------------------------------------
     async def handle_support_event(self, event_type: str, snippet: dict, author_name: str, yt_user_id: str, streamer_id, live_chat_id: str, is_guest: bool = False):
         db = SessionLocal() if not is_guest else None
         try:
             message = ""
             coin_bonus = 0
+            amount_str = ""
 
             if event_type == "superChatEvent":
-                amount = snippet.get("superChatDetails", {}).get("displayString", "a Super Chat")
-                message = f"🎉 WOW! Thank you so much @{author_name} for the {amount}! You are amazing!"
+                amount_str = snippet.get("superChatDetails", {}).get("displayString", "a Super Chat")
+                message = f"🎉 WOW! Thank you so much @{author_name} for the {amount_str}! You are amazing!"
                 coin_bonus = 500
             elif event_type == "superStickerEvent":
-                amount = snippet.get("superStickerDetails", {}).get("displayString", "a Super Sticker")
-                message = f"💖 Thank you @{author_name} for the {amount} Super Sticker!"
+                amount_str = snippet.get("superStickerDetails", {}).get("displayString", "a Super Sticker")
+                message = f"💖 Thank you @{author_name} for the {amount_str} Super Sticker!"
                 coin_bonus = 300
             elif event_type == "newSponsorEvent":
                 message = f"🎊 Welcome to the VIP family, @{author_name}! Thank you for becoming a member!"
@@ -216,6 +218,18 @@ class YouTubeChatMonitor:
                     user.coins[0].lifetime_earned += coin_bonus
                     db.commit()
 
+                # --- NEW: OBS WIDGET ALERT TRIGGER ---
+                streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+                if streamer and streamer.server_sync_code:
+                    alert_payload = {
+                        "type": "alert",
+                        "event_type": event_type,
+                        "author": author_name,
+                        "message": message,
+                        "amount": amount_str
+                    }
+                    await overlay_manager.send_alert(streamer.server_sync_code, alert_payload)
+
             if message:
                 await self.send_message(message, live_chat_id)
                 
@@ -227,7 +241,7 @@ class YouTubeChatMonitor:
 
 
     # ---------------------------------------------------------
-    # CORE MESSAGE PROCESSOR (GUEST READY)
+    # CORE MESSAGE PROCESSOR
     # ---------------------------------------------------------
     async def process_message(self, yt_user_id: str, username: str, message_text: str, message_id: str, streamer_id, live_chat_id: str, is_mod: bool, is_guest: bool = False):
         db = SessionLocal() if not is_guest else None
@@ -491,7 +505,6 @@ class YouTubeChatMonitor:
                             name = streamer.channel_name if streamer else f"Guest Stream ({channel_id})"
                             print(f"[LIVE] {mode_str} Connected to {name}'s chat!")
 
-                            # --- NEW: MAKE THE BOT SAY HELLO WHEN IT JOINS ---
                             if is_guest:
                                 await self.send_message("👋 Hello! Goddess AI (Guest Mode) has successfully connected to the chat!", chat_id)
                             else:

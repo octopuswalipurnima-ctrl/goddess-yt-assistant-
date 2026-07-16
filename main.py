@@ -4,7 +4,7 @@ import asyncio
 import random
 import string
 import uvicorn
-from fastapi import FastAPI, Request, Depends, Form
+from fastapi import FastAPI, Request, Depends, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -20,6 +20,7 @@ from app.dashboard.routes import router as dashboard_router
 from app.bot.youtube_chat import YouTubeChatMonitor, DETECTED_VIDEOS
 from app.bot.discord_bot import start_discord_bot
 from app.services.scheduler import start_scheduler
+from app.services.websocket import overlay_manager
 
 app = FastAPI(title="Goddess Stream Manager")
 
@@ -56,7 +57,7 @@ templates = Jinja2Templates(directory="templates")
 
 
 # ---------------------------------------------------------
-# FRONTEND DASHBOARD ROUTES (UPGRADED GUEST MODE)
+# FRONTEND DASHBOARD ROUTES (WITH GUEST & OBS WIDGETS)
 # ---------------------------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
@@ -76,21 +77,16 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
         
     streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
     
-    # ---------------------------------------------------------
-    # ZOMBIE COOKIE FIX: If the DB was wiped, log the user out!
-    # ---------------------------------------------------------
     if not streamer:
         request.session.clear()
         return RedirectResponse(url="/", status_code=303)
     
-    # Auto-generate a secure 6-digit sync code for Discord linking if one doesn't exist
     if not streamer.server_sync_code:
         streamer.server_sync_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         db.commit()
         
     viewers = db.query(User).join(XP).filter(XP.streamer_id == streamer_id).all()
     
-    # Since we guarded against `None` above, we can safely pull variables directly!
     settings = {
         "ai_cohost_enabled": streamer.ai_cohost_enabled,
         "giveaway_reminders_enabled": streamer.giveaway_reminders_enabled,
@@ -124,7 +120,6 @@ async def toggle_setting(request: Request, setting: str = Form(...), db: Session
 
 @app.post("/guest-join")
 async def guest_join(request: Request, stream_url: str = Form(...)):
-    # Extract the 11-character video ID from the pasted YouTube link
     yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/live\/)([a-zA-Z0-9_-]{11})"
     match = re.search(yt_regex, stream_url)
     
@@ -133,8 +128,46 @@ async def guest_join(request: Request, stream_url: str = Form(...)):
         print(f"[GUEST MODE] Summon request received for Video ID: {video_id}")
         DETECTED_VIDEOS.add(video_id)
         
-    # Redirect back to home with a success flag
     return RedirectResponse(url="/?guest=true", status_code=303)
+
+# ---------------------------------------------------------
+# OBS WEBSOCKET & WIDGET ROUTES
+# ---------------------------------------------------------
+@app.get("/overlay/{sync_code}")
+async def render_overlay(request: Request, sync_code: str):
+    """The actual webpage that OBS loads as a Browser Source."""
+    return templates.TemplateResponse(
+        request=request,
+        name="overlay.html", 
+        context={"request": request, "sync_code": sync_code}
+    )
+
+@app.websocket("/ws/overlay/{sync_code}")
+async def websocket_overlay(websocket: WebSocket, sync_code: str):
+    """The real-time connection from OBS to the backend."""
+    await overlay_manager.connect(websocket, sync_code)
+    try:
+        while True:
+            data = await websocket.receive_text()
+    except WebSocketDisconnect:
+        overlay_manager.disconnect(websocket, sync_code)
+
+@app.post("/test-alert")
+async def test_alert(request: Request, db: Session = Depends(get_db)):
+    """Allows streamers to test their OBS widget from the dashboard."""
+    streamer_id = request.session.get("streamer_id")
+    if streamer_id:
+        streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+        if streamer and streamer.server_sync_code:
+            test_payload = {
+                "type": "alert",
+                "event_type": "superChatEvent",
+                "author": "System Tester",
+                "message": "This is a test Super Chat! Your OBS widget is working perfectly!",
+                "amount": "$50.00"
+            }
+            await overlay_manager.send_alert(streamer.server_sync_code, test_payload)
+    return RedirectResponse(url="/", status_code=303)
 
 
 # ---------------------------------------------------------

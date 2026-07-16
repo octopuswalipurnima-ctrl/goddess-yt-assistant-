@@ -107,7 +107,7 @@
             </p>
             <a href="/login" class="login-btn">Log in with YouTube</a>
 
-            <!-- NEW: GUEST MODE SUMMONER -->
+            <!-- GUEST MODE SUMMONER -->
             <div style="margin-top: 40px; padding: 25px; background: #1e1e24; border-radius: 12px; border: 1px dashed #444; max-width: 500px; margin-left: auto; margin-right: auto;">
                 <h3 style="margin-top: 0; font-size: 1.2em; color: #e5e7eb; text-align: left;">Try Guest Mode</h3>
                 <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 20px; text-align: left; line-height: 1.5;">Paste your active Live Stream URL to summon the bot instantly. (Advanced AI, economy, and database features are disabled in Guest Mode).</p>
@@ -129,6 +129,23 @@
             <a href="/logout" class="btn-logout">Logout</a>
             <h2 style="margin: 0;">Welcome, {{ streamer_name }}!</h2>
             <p style="color: #9ca3af; margin-top: 5px;">Your dashboard is active and synced.</p>
+        </div>
+
+        <!-- NEW: OBS WIDGET PANEL -->
+        <div class="panel">
+            <h3>🎥 Stream Alerts & Widgets</h3>
+            <p style="color: #9ca3af; margin-bottom: 15px;">Paste this Master Browser Source into OBS or Prism. It handles all on-screen graphics automatically.</p>
+            
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <input type="text" id="obsLink" readonly value="https://{{ request.headers.get('host') }}/overlay/{{ settings.server_sync_code }}" style="flex: 1; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #111; color: #a855f7; font-family: monospace; font-size: 1.1em;">
+                <button onclick="copyOBS()" style="background: #3b82f6; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">Copy</button>
+            </div>
+
+            <form action="/test-alert" method="POST">
+                <button type="submit" style="background: #22c55e; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%;">
+                    🔔 Send Test Alert to OBS
+                </button>
+            </form>
         </div>
 
         <!-- DISCORD INTEGRATION PANEL -->
@@ -202,5 +219,15 @@
         </div>
         {% endif %}
     </div>
+
+    <!-- Script added to the bottom of the body to power the copy button -->
+    <script>
+        function copyOBS() {
+            var copyText = document.getElementById("obsLink");
+            copyText.select();
+            document.execCommand("copy");
+            alert("OBS Browser Source URL copied to clipboard!");
+        }
+    </script>
 </body>
 </html>
