@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy.orm import Session
 
@@ -20,19 +21,31 @@ from app.services.scheduler import start_scheduler
 app = FastAPI(title="Goddess Stream Manager")
 
 # ---------------------------------------------------------
-# MIDDLEWARE & BROWSER SESSIONS (PRODUCTION UPGRADE)
+# GLOBAL PRODUCTION PROXY & HTTPS ENFORCEMENT
 # ---------------------------------------------------------
-# 1. Respect reverse proxy headers passed by Railway
+# 1. Custom Middleware to force HTTPS scheme globally on Railway
+class ForceHTTPSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # If running on Railway and the proxy forwarded it as HTTP, force HTTPS scope
+        if "localhost" not in str(request.url) and request.headers.get("x-forwarded-proto") == "http":
+            request.scope["scheme"] = "https"
+        elif "localhost" not in str(request.url) and str(request.url).startswith("http://"):
+            request.scope["scheme"] = "https"
+        return await call_next(request)
+
+app.add_middleware(ForceHTTPSMiddleware)
+
+# 2. Respect reverse proxy headers passed by Railway
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=("*",))
 
-# 2. Configure secure cross-site tracking flags for browser cookies
+# 3. Configure secure session tracking flags for browser cookies
 is_production = os.environ.get("PORT") is not None
 app.add_middleware(
     SessionMiddleware, 
     secret_key="super-secret-goddess-key-change-later",
     max_age=3600 * 24 * 7,            # 7 Days persistence
-    https_only=is_production,          # Forces secure cookies on Railway HTTPS
-    same_site="lax"                    # Permits smooth authorization redirects
+    https_only=is_production,          # Ensures secure cookie flags line up
+    same_site="lax"                    # Allows smooth authentication transitions
 )
 
 # AUTOMATIC SAFEGUARD: Creates folders if Git missed them
@@ -57,6 +70,9 @@ app.include_router(auth_router)
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     streamer_id = request.session.get("streamer_id")
     streamer_name = request.session.get("streamer_name")
+    
+    # Print state debugging directly to Railway logs to verify cookie presence
+    print(f"[DASHBOARD ROOT ACCESS] streamer_id: {streamer_id} | streamer_name: {streamer_name}", flush=True)
     
     settings = {
         "ai_cohost_enabled": True,
