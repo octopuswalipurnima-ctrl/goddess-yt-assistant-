@@ -1,3 +1,4 @@
+import os
 import asyncio
 import uvicorn
 from fastapi import FastAPI, Request, Depends, Form
@@ -16,7 +17,13 @@ from app.services.scheduler import start_scheduler
 
 app = FastAPI(title="Goddess Stream Manager")
 
-# Tell FastAPI where the CSS and HTML files live
+# AUTOMATIC SAFEGUARD: Dynamically creates static/templates folders if Git missed them
+if not os.path.exists("static"):
+    os.makedirs("static")
+if not os.path.exists("templates"):
+    os.makedirs("templates")
+
+# Mount assets and specify the HTML template directory safely
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -24,12 +31,13 @@ templates = Jinja2Templates(directory="templates")
 app.include_router(dashboard_router)
 app.include_router(auth_router)
 
+
 # -----------------------------------------
 # FRONTEND DASHBOARD ROUTES
 # -----------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
-    # Fetch all users to populate the Leaderboard table
+    # Fetch all users to populate the Leaderboard table dynamically
     viewers = db.query(User).all()
     
     # Provide temporary settings for the UI toggles
@@ -61,28 +69,29 @@ async def manual_announcement(message: str = Form(...)):
 # -----------------------------------------
 # BACKGROUND WORKERS & STARTUP LOGIC
 # -----------------------------------------
-# --- THE FIX: We must store our background tasks safely ---
-# Python 3.12 will forcefully "clean up" and kill any async tasks 
-# if they aren't saved to a list. This protects our bots!
+# --- THE TASK PRESERVATION FIX ---
+# Storing running async tasks in a persistent global list prevents 
+# Python 3.12's Garbage Collector from killing our background bots.
 running_tasks = []
 
 @app.on_event("startup")
 async def startup_event():
     print("[STARTUP] Initializing systems...")
     
-    # 1. Initialize SQLite tables
+    # 1. Initialize SQLite database tables
     init_db()
     
-    # 2. Fire up background cron loops
+    # 2. Fire up background cron loops/schedulers
     start_scheduler()
     
     # 3. Mount async worker integrations securely
     yt_monitor = YouTubeChatMonitor()
     
-    # Save them to the global list to protect them from the Garbage Collector
+    # Spawn background worker tasks for both systems concurrently
     task1 = asyncio.create_task(yt_monitor.run())
     task2 = asyncio.create_task(start_discord_bot())
     
+    # Protect both tasks from unexpected garbage collection dropouts
     running_tasks.append(task1)
     running_tasks.append(task2)
     
