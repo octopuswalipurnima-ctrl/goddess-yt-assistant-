@@ -20,8 +20,12 @@ class Streamer(Base):
     # --- DASHBOARD & DISCORD SETTINGS ---
     ai_cohost_enabled = Column(Boolean, default=True)
     giveaway_reminders_enabled = Column(Boolean, default=False)
+    
+    # Secure Sync Code and Routing IDs
+    server_sync_code = Column(String, unique=True, nullable=True)
     discord_guild_id = Column(String, nullable=True)
     discord_log_channel_id = Column(String, nullable=True)
+    discord_announcement_channel_id = Column(String, nullable=True)
 
     # Linking the streamer to their channel's data
     xps = relationship("XP", back_populates="streamer")

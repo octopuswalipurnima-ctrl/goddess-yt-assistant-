@@ -1,5 +1,7 @@
 import os
 import asyncio
+import random
+import string
 import uvicorn
 from fastapi import FastAPI, Request, Depends, Form
 from fastapi.responses import RedirectResponse
@@ -11,7 +13,6 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy.orm import Session
 
 from app.database.connection import init_db, get_db
-# Added Streamer to the imports to read/write settings
 from app.database.models import User, XP, Streamer
 from app.dashboard.auth import router as auth_router
 from app.dashboard.routes import router as dashboard_router
@@ -54,7 +55,7 @@ templates = Jinja2Templates(directory="templates")
 
 
 # ---------------------------------------------------------
-# FRONTEND DASHBOARD ROUTES (UPGRADED WITH DATABASE SETTINGS)
+# FRONTEND DASHBOARD ROUTES (UPGRADED SYNC CODE LOGIC)
 # ---------------------------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
@@ -72,15 +73,20 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             }
         )
         
-    # Fetch the active streamer's specific settings from the database
     streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+    
+    # Auto-generate a secure 6-digit sync code for Discord linking if one doesn't exist
+    if streamer and not streamer.server_sync_code:
+        streamer.server_sync_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        db.commit()
+        
     viewers = db.query(User).join(XP).filter(XP.streamer_id == streamer_id).all()
     
     settings = {
         "ai_cohost_enabled": streamer.ai_cohost_enabled if streamer else True,
         "giveaway_reminders_enabled": streamer.giveaway_reminders_enabled if streamer else False,
-        "discord_guild_id": streamer.discord_guild_id if streamer else "",
-        "discord_log_channel_id": streamer.discord_log_channel_id if streamer else ""
+        "server_sync_code": streamer.server_sync_code if streamer else "",
+        "is_discord_linked": bool(streamer.discord_guild_id) # True if they completed the /setup command
     }
     
     return templates.TemplateResponse(
@@ -104,17 +110,6 @@ async def toggle_setting(request: Request, setting: str = Form(...), db: Session
                 streamer.ai_cohost_enabled = not streamer.ai_cohost_enabled
             elif setting == "giveaways":
                 streamer.giveaway_reminders_enabled = not streamer.giveaway_reminders_enabled
-            db.commit()
-    return RedirectResponse(url="/", status_code=303)
-
-@app.post("/update-discord")
-async def update_discord(request: Request, guild_id: str = Form(""), channel_id: str = Form(""), db: Session = Depends(get_db)):
-    streamer_id = request.session.get("streamer_id")
-    if streamer_id:
-        streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
-        if streamer:
-            streamer.discord_guild_id = guild_id
-            streamer.discord_log_channel_id = channel_id
             db.commit()
     return RedirectResponse(url="/", status_code=303)
 

@@ -1,8 +1,10 @@
 import re
 import discord
+from discord import app_commands
 from discord.ext import commands
 from app.database.connection import SessionLocal
-from app.database.models import User, DiscordLink
+# Added Streamer so the setup command can update the database
+from app.database.models import User, DiscordLink, Streamer
 from app.utils.config import Config
 
 # ---------------------------------------------------------
@@ -51,6 +53,56 @@ async def on_message(message):
 # ---------------------------------------------------------
 # SLASH COMMANDS
 # ---------------------------------------------------------
+
+# --- NEW: Streamer Setup Command ---
+@bot.tree.command(name="setup", description="Link your Discord server to your Goddess AI dashboard.")
+@app_commands.describe(
+    sync_code="The 6-character code from your web dashboard",
+    log_channel="Where should I send moderation logs?",
+    announce_channel="Where should I send go-live announcements?"
+)
+async def setup_dashboard(
+    interaction: discord.Interaction, 
+    sync_code: str, 
+    log_channel: discord.TextChannel, 
+    announce_channel: discord.TextChannel
+):
+    # Ensure they have admin permissions in the server before setting this up
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ **Access Denied.** You must be a server administrator to run setup.", ephemeral=True)
+        return
+
+    db = SessionLocal()
+    try:
+        # Look up the streamer by their dashboard code
+        streamer = db.query(Streamer).filter(Streamer.server_sync_code == sync_code).first()
+        
+        if not streamer:
+            await interaction.response.send_message(
+                "❌ **Invalid Sync Code.** Please check your Goddess AI web dashboard and try again.", 
+                ephemeral=True
+            )
+            return
+            
+        # Invisa-sync the IDs to the database!
+        streamer.discord_guild_id = str(interaction.guild_id)
+        streamer.discord_log_channel_id = str(log_channel.id)
+        streamer.discord_announcement_channel_id = str(announce_channel.id)
+        
+        db.commit()
+        
+        # Confirm success privately to the streamer
+        success_msg = (
+            f"✅ **Server Linked Successfully to {streamer.channel_name}!**\n\n"
+            f"**Logs Channel:** {log_channel.mention}\n"
+            f"**Announcements Channel:** {announce_channel.mention}\n\n"
+            f"Your Goddess AI dashboard will reflect these changes immediately."
+        )
+        await interaction.response.send_message(success_msg, ephemeral=True)
+    finally:
+        db.close()
+
+
 @bot.tree.command(name="link", description="Link your YouTube account using your secret code.")
 async def link_account(interaction: discord.Interaction, code: str):
     db = SessionLocal()
@@ -69,6 +121,7 @@ async def link_account(interaction: discord.Interaction, code: str):
         await interaction.response.send_message(f"✅ Success! Your YouTube account is now linked to your Discord.", ephemeral=True)
     finally:
         db.close()
+
 
 @bot.tree.command(name="profile", description="View your global Streamer Loyalty Profile.")
 async def view_profile(interaction: discord.Interaction):
@@ -94,6 +147,7 @@ async def view_profile(interaction: discord.Interaction):
         await interaction.response.send_message(embed=embed)
     finally:
         db.close()
+
 
 async def start_discord_bot():
     if not Config.DISCORD_BOT_TOKEN:

@@ -56,25 +56,6 @@
             padding-bottom: 10px;
             color: #e5e7eb;
         }
-        .form-group {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            margin-bottom: 15px;
-        }
-        .form-group label {
-            font-weight: 600;
-            font-size: 0.9em;
-            color: #9ca3af;
-        }
-        .form-group input {
-            padding: 12px;
-            border-radius: 6px;
-            border: 1px solid #444;
-            background: #2a2a32;
-            color: white;
-            font-family: monospace;
-        }
         .btn-submit {
             background: #a855f7;
             color: white;
@@ -106,7 +87,7 @@
             border-radius: 8px;
             color: white;
             text-decoration: none;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             font-weight: bold;
             transition: opacity 0.2s;
         }
@@ -139,28 +120,25 @@
         <div class="panel">
             <h3>Discord Integration</h3>
             
-            <!-- Invite Button -->
-            <!-- IMPORTANT: Replace YOUR_CLIENT_ID_HERE with your actual Discord Bot Client ID -->
-            <a href="https://discord.com/api/oauth2/authorize?client_id=1518501209852350484&permissions=274878016512&scope=bot%20applications.commands" 
-               target="_blank" 
-               class="discord-invite">
-               ➕ Add Bot to Discord Server
-            </a>
+            {% if settings.is_discord_linked %}
+                <div style="background: rgba(34, 197, 94, 0.1); border: 1px solid #22c55e; padding: 15px; border-radius: 8px; color: #4ade80; margin-bottom: 10px;">
+                    ✅ <strong>Server Linked!</strong> Your Discord is actively connected to Goddess AI. To change your channels, just run the setup command in Discord again.
+                </div>
+            {% else %}
+                <!-- IMPORTANT: Replace YOUR_CLIENT_ID_HERE with your actual Discord Bot Client ID -->
+                <a href="https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID_HERE&permissions=274878016512&scope=bot%20applications.commands" 
+                   target="_blank" 
+                   class="discord-invite">
+                   1️⃣ Add Bot to Discord Server
+                </a>
 
-            <!-- Configuration Form -->
-            <form action="/update-discord" method="POST" style="max-width: 400px;">
-                <div class="form-group">
-                    <label>Discord Server (Guild) ID:</label>
-                    <input type="text" name="guild_id" value="{{ settings.discord_guild_id }}" placeholder="e.g. 1045839201923">
+                <div style="margin-top: 10px;">
+                    <p style="color: #9ca3af; margin-bottom: 8px;">2️⃣ Run this command inside your Discord server:</p>
+                    <div style="background: #111; padding: 15px; border-radius: 6px; font-family: monospace; color: #a855f7; font-size: 1.1em; letter-spacing: 1px; border: 1px solid #333;">
+                        /setup sync_code:{{ settings.server_sync_code }}
+                    </div>
                 </div>
-                
-                <div class="form-group">
-                    <label>Log Channel ID:</label>
-                    <input type="text" name="channel_id" value="{{ settings.discord_log_channel_id }}" placeholder="e.g. 1045839201999">
-                </div>
-                
-                <button type="submit" class="btn-submit">Save Discord Routing</button>
-            </form>
+            {% endif %}
         </div>
 
         <!-- AI FEATURE TOGGLES -->
