@@ -21,32 +21,37 @@ oauth.register(
 
 @router.get("/login")
 async def login(request: Request):
-    # 1. Generate the base callback URL
     redirect_uri = str(request.url_for('auth_callback'))
-    
-    # 2. FORCE HTTPS: If running on Railway (not localhost), override it to secure HTTPS
     if "localhost" not in redirect_uri and redirect_uri.startswith("http://"):
         redirect_uri = redirect_uri.replace("http://", "https://")
         
-    print(f"[AUTH ROUTE] Sending redirect_uri to Google: {redirect_uri}", flush=True)
+    print(f"[AUTH ROUTE] Requesting login via: {redirect_uri}", flush=True)
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @router.get("/auth", name="auth_callback")
 async def auth_callback(request: Request, db: Session = Depends(get_db)):
-    # Force the internal request scheme to match what Google sends back
     if "localhost" not in str(request.url) and str(request.url).startswith("http://"):
         request.scope["scheme"] = "https"
         
+    print("[AUTH DEBUG] Callback reached. Fetching access token...", flush=True)
     try:
         token = await oauth.google.authorize_access_token(request)
-        userinfo = token.get('userinfo')
+        print(f"[AUTH DEBUG] Token keys received: {list(token.keys())}", flush=True)
         
+        # Fallback parsing if userinfo dictionary is nested differently
+        userinfo = token.get('userinfo')
+        if not userinfo and 'id_token' in token:
+            print("[AUTH DEBUG] userinfo missing, attempting to extract from profile scope...", flush=True)
+            userinfo = await oauth.google.parse_id_token(request, token)
+
         if userinfo:
             name = userinfo.get("name")
             youtube_id = userinfo.get("sub")
+            print(f"[AUTH DEBUG] Parsed Userinfo - Name: {name}, YouTube ID: {youtube_id}", flush=True)
             
             streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == youtube_id).first()
             if not streamer:
+                print(f"[AUTH DEBUG] New Streamer account creating for: {name}", flush=True)
                 streamer = Streamer(
                     youtube_channel_id=youtube_id,
                     channel_name=name,
@@ -56,12 +61,15 @@ async def auth_callback(request: Request, db: Session = Depends(get_db)):
                 db.commit()
                 db.refresh(streamer)
             
+            # Write to session memory storage
             request.session['streamer_id'] = streamer.id
             request.session['streamer_name'] = name
-            print(f"[AUTH SUCCESS] Logged in as {name}", flush=True)
+            print(f"[AUTH SUCCESS] Session saved for {name}. Active ID: {streamer.id}", flush=True)
+        else:
+            print("[AUTH WARNING] Google authentication completed but userinfo fields were unreadable.", flush=True)
             
     except Exception as e:
-        print(f"[AUTH ERROR] Failed to log in: {e}", flush=True)
+        print(f"[AUTH ERROR] Runtime breakdown inside authorization loop: {e}", flush=True)
         traceback.print_exc()
         
     return RedirectResponse(url="/", status_code=303)

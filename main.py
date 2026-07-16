@@ -19,14 +19,20 @@ from app.services.scheduler import start_scheduler
 
 app = FastAPI(title="Goddess Stream Manager")
 
-# 1. FIX THE RAILWAY PROXY HEADERS (Forces HTTPS for Google OAuth)
+# ---------------------------------------------------------
+# MIDDLEWARE & BROWSER SESSIONS (PRODUCTION UPGRADE)
+# ---------------------------------------------------------
+# 1. Respect reverse proxy headers passed by Railway
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=("*",))
 
-# 2. BROWSER SESSIONS
+# 2. Configure secure cross-site tracking flags for browser cookies
+is_production = os.environ.get("PORT") is not None
 app.add_middleware(
     SessionMiddleware, 
     secret_key="super-secret-goddess-key-change-later",
-    max_age=3600 * 24 * 7 # Keeps you logged in for 7 days
+    max_age=3600 * 24 * 7,            # 7 Days persistence
+    https_only=is_production,          # Forces secure cookies on Railway HTTPS
+    same_site="lax"                    # Permits smooth authorization redirects
 )
 
 # AUTOMATIC SAFEGUARD: Creates folders if Git missed them
@@ -44,9 +50,9 @@ app.include_router(dashboard_router)
 app.include_router(auth_router)
 
 
-# -----------------------------------------
+# ---------------------------------------------------------
 # FRONTEND DASHBOARD ROUTES
-# -----------------------------------------
+# ---------------------------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     streamer_id = request.session.get("streamer_id")
@@ -85,9 +91,9 @@ async def manual_announcement(message: str = Form(...)):
     return RedirectResponse(url="/", status_code=303)
 
 
-# -----------------------------------------
+# ---------------------------------------------------------
 # BACKGROUND WORKERS & STARTUP LOGIC
-# -----------------------------------------
+# ---------------------------------------------------------
 running_tasks = []
 
 @app.on_event("startup")
@@ -111,5 +117,11 @@ if __name__ == "__main__":
     should_reload = False if os.environ.get("PORT") else True
     
     print(f"[BOOT] Launching Uvicorn server on port {railway_port}...")
-    # proxy_headers=True tells the server to respect the middleware we added above
-    uvicorn.run("main:app", host="0.0.0.0", port=railway_port, reload=should_reload, proxy_headers=True, forwarded_allow_ips="*")
+    uvicorn.run(
+        "main:app", 
+        host="0.0.0.0", 
+        port=railway_port, 
+        reload=should_reload, 
+        proxy_headers=True, 
+        forwarded_allow_ips="*"
+    )
