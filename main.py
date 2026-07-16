@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy.orm import Session
 
 from app.database.connection import init_db, get_db
@@ -18,12 +19,14 @@ from app.services.scheduler import start_scheduler
 
 app = FastAPI(title="Goddess Stream Manager")
 
-# -----------------------------------------
-# MIDDLEWARE & BROWSER SESSIONS
-# -----------------------------------------
+# 1. FIX THE RAILWAY PROXY HEADERS (Forces HTTPS for Google OAuth)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=("*",))
+
+# 2. BROWSER SESSIONS
 app.add_middleware(
     SessionMiddleware, 
-    secret_key="super-secret-goddess-key-change-later"
+    secret_key="super-secret-goddess-key-change-later",
+    max_age=3600 * 24 * 7 # Keeps you logged in for 7 days
 )
 
 # AUTOMATIC SAFEGUARD: Creates folders if Git missed them
@@ -104,12 +107,9 @@ async def startup_event():
     print("[STARTUP] Web Admin Dashboard, YouTube Engine, and Discord Bot are active!")
 
 if __name__ == "__main__":
-    # FIX: Dynamically read the port assigned by Railway, fallback to 8000 only for local testing
     railway_port = int(os.environ.get("PORT", 8000))
-    
-    # In production container environments like Railway, reload should be False to prevent sub-process crash loops
     should_reload = False if os.environ.get("PORT") else True
     
     print(f"[BOOT] Launching Uvicorn server on port {railway_port}...")
-    uvicorn.run("main:app", host="0.0.0.0", port=railway_port, reload=should_reload)
-    
+    # proxy_headers=True tells the server to respect the middleware we added above
+    uvicorn.run("main:app", host="0.0.0.0", port=railway_port, reload=should_reload, proxy_headers=True, forwarded_allow_ips="*")
