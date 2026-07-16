@@ -21,9 +21,8 @@ from app.services.scheduler import start_scheduler
 app = FastAPI(title="Goddess Stream Manager")
 
 # ---------------------------------------------------------
-# MIDDLEWARE & BROWSER SESSIONS (STABILIZED COOKIE FLOW)
+# MIDDLEWARE & BROWSER SESSIONS
 # ---------------------------------------------------------
-# 1. Custom Middleware to force HTTPS scheme globally on Railway
 class ForceHTTPSMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if "localhost" not in str(request.url) and request.headers.get("x-forwarded-proto") == "http":
@@ -33,43 +32,34 @@ class ForceHTTPSMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(ForceHTTPSMiddleware)
-
-# 2. Respect reverse proxy headers passed by Railway
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=("*",))
 
-# 3. Secure session tracking configuration
 app.add_middleware(
     SessionMiddleware, 
     secret_key="super-secret-goddess-key-change-later",
-    max_age=3600 * 24 * 7,            # 7 Days persistence
-    https_only=False,                  # FIXED: Prevents Starlette from dropping proxy cookies on redirect
-    same_site="lax"                    # Allows smooth authorization transitions
+    max_age=3600 * 24 * 7,
+    https_only=False,
+    same_site="lax"
 )
 
-# AUTOMATIC SAFEGUARD: Creates folders if Git missed them
+# AUTOMATIC SAFEGUARD
 if not os.path.exists("static"):
     os.makedirs("static")
 if not os.path.exists("templates"):
     os.makedirs("templates")
 
-# Mount assets and specify templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# Mount authentication and dashboard routers
-app.include_router(dashboard_router)
-app.include_router(auth_router)
-
 
 # ---------------------------------------------------------
-# FRONTEND DASHBOARD ROUTES
+# FRONTEND DASHBOARD ROUTES (PLACED FIRST TO TAKE PRIORITY)
 # ---------------------------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     streamer_id = request.session.get("streamer_id")
     streamer_name = request.session.get("streamer_name")
     
-    # Print state debugging directly to Railway logs to verify cookie presence
     print(f"[DASHBOARD ROOT ACCESS] streamer_id: {streamer_id} | streamer_name: {streamer_name}", flush=True)
     
     settings = {
@@ -93,6 +83,14 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
         "viewers": viewers,
         "settings": settings
     })
+
+
+# ---------------------------------------------------------
+# MOUNT ADDITIONAL ROUTERS
+# ---------------------------------------------------------
+app.include_router(dashboard_router)
+app.include_router(auth_router)
+
 
 @app.post("/toggle-ai")
 async def toggle_ai(mode: str = Form(...)):
