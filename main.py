@@ -53,7 +53,7 @@ templates = Jinja2Templates(directory="templates")
 
 
 # ---------------------------------------------------------
-# FRONTEND DASHBOARD ROUTES (PLACED FIRST TO TAKE PRIORITY)
+# FRONTEND DASHBOARD ROUTES (FIXED TEMPLATE ARGS)
 # ---------------------------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
@@ -68,21 +68,29 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     }
     
     if not streamer_id:
-        return templates.TemplateResponse("index.html", {
-            "request": request,
-            "streamer_name": None,
-            "viewers": [],
-            "settings": settings
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html", 
+            context={
+                "request": request,
+                "streamer_name": None,
+                "viewers": [],
+                "settings": settings
+            }
+        )
         
     viewers = db.query(User).join(XP).filter(XP.streamer_id == streamer_id).all()
     
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "streamer_name": streamer_name,
-        "viewers": viewers,
-        "settings": settings
-    })
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html", 
+        context={
+            "request": request,
+            "streamer_name": streamer_name,
+            "viewers": viewers,
+            "settings": settings
+        }
+    )
 
 
 # ---------------------------------------------------------
