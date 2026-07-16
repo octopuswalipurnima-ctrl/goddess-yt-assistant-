@@ -8,5 +8,7 @@ apscheduler
 jinja2
 python-dotenv
 python-multipart
+itsdangerous
 authlib
 httpx
+
