@@ -106,6 +106,21 @@
                 The ultimate multi-dialect chat moderator and loyalty engine for professional live broadcasters.
             </p>
             <a href="/login" class="login-btn">Log in with YouTube</a>
+
+            <!-- NEW: GUEST MODE SUMMONER -->
+            <div style="margin-top: 40px; padding: 25px; background: #1e1e24; border-radius: 12px; border: 1px dashed #444; max-width: 500px; margin-left: auto; margin-right: auto;">
+                <h3 style="margin-top: 0; font-size: 1.2em; color: #e5e7eb; text-align: left;">Try Guest Mode</h3>
+                <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 20px; text-align: left; line-height: 1.5;">Paste your active Live Stream URL to summon the bot instantly. (Advanced AI, economy, and database features are disabled in Guest Mode).</p>
+                <form action="/guest-join" method="POST" style="display: flex; gap: 10px;">
+                    <input type="text" name="stream_url" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
+                    <button type="submit" style="background: #3b82f6; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">Summon Bot</button>
+                </form>
+                {% if request.query_params.get('guest') == 'true' %}
+                    <div style="background: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; padding: 12px; border-radius: 8px; color: #4ade80; margin-top: 15px; text-align: left; font-weight: bold;">
+                        ✅ Bot summoned! It should appear in your chat momentarily.
+                    </div>
+                {% endif %}
+            </div>
         </div>
         
         {% else %}

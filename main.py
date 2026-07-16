@@ -1,4 +1,5 @@
 import os
+import re
 import asyncio
 import random
 import string
@@ -16,7 +17,7 @@ from app.database.connection import init_db, get_db
 from app.database.models import User, XP, Streamer
 from app.dashboard.auth import router as auth_router
 from app.dashboard.routes import router as dashboard_router
-from app.bot.youtube_chat import YouTubeChatMonitor
+from app.bot.youtube_chat import YouTubeChatMonitor, DETECTED_VIDEOS
 from app.bot.discord_bot import start_discord_bot
 from app.services.scheduler import start_scheduler
 
@@ -55,7 +56,7 @@ templates = Jinja2Templates(directory="templates")
 
 
 # ---------------------------------------------------------
-# FRONTEND DASHBOARD ROUTES (UPGRADED SESSION SAFEGUARD)
+# FRONTEND DASHBOARD ROUTES (UPGRADED GUEST MODE)
 # ---------------------------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
@@ -120,6 +121,20 @@ async def toggle_setting(request: Request, setting: str = Form(...), db: Session
                 streamer.giveaway_reminders_enabled = not streamer.giveaway_reminders_enabled
             db.commit()
     return RedirectResponse(url="/", status_code=303)
+
+@app.post("/guest-join")
+async def guest_join(request: Request, stream_url: str = Form(...)):
+    # Extract the 11-character video ID from the pasted YouTube link
+    yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/live\/)([a-zA-Z0-9_-]{11})"
+    match = re.search(yt_regex, stream_url)
+    
+    if match:
+        video_id = match.group(1)
+        print(f"[GUEST MODE] Summon request received for Video ID: {video_id}")
+        DETECTED_VIDEOS.add(video_id)
+        
+    # Redirect back to home with a success flag
+    return RedirectResponse(url="/?guest=true", status_code=303)
 
 
 # ---------------------------------------------------------
