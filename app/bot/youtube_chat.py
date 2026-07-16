@@ -34,7 +34,10 @@ class YouTubeChatMonitor:
         self.active_streams = {}  # Format: {streamer_id: live_chat_id}
         self.next_page_tokens = {} # Format: {live_chat_id: next_page_token}
         
-        self.watched_users = set()
+        # --- Escalating AI Monitor ---
+        self.monitored_users = {} # Format: {clean_username: {"yt_user_id": str, "strikes": 0, "last_checked": datetime}}
+        self.is_ai_active = True
+        
         self.spam_tracker = {}
         
         # --- VIP Trackers and Command Memory ---
@@ -47,6 +50,9 @@ class YouTubeChatMonitor:
             "nigga", "nigger", "slut", "whore"
         }
 
+    # ---------------------------------------------------------
+    # API ACTION METHODS
+    # ---------------------------------------------------------
     def send_discord_log(self, webhook_url: str, action_type: str, username: str, text: str, reason: str):
         if not webhook_url:
             return
@@ -88,13 +94,52 @@ class YouTubeChatMonitor:
         except Exception as e:
             print(f"[YOUTUBE DELETE ERROR]: {e}")
 
+    async def timeout_user(self, live_chat_id: str, channel_id: str, duration_seconds: int = 300):
+        if not live_chat_id or not channel_id:
+            return
+        try:
+            self.youtube.liveChatBans().insert(
+                part="snippet",
+                body={
+                    "snippet": {
+                        "liveChatId": live_chat_id,
+                        "type": "temporary",
+                        "temporaryBanDurationMinutes": int(duration_seconds / 60),
+                        "bannedUserDetails": {"channelId": channel_id}
+                    }
+                }
+            ).execute()
+        except Exception as e:
+            print(f"[YOUTUBE TIMEOUT ERROR]: {e}")
+
+    async def ban_user(self, live_chat_id: str, channel_id: str):
+        if not live_chat_id or not channel_id:
+            return
+        try:
+            self.youtube.liveChatBans().insert(
+                part="snippet",
+                body={
+                    "snippet": {
+                        "liveChatId": live_chat_id,
+                        "type": "permanent",
+                        "bannedUserDetails": {"channelId": channel_id}
+                    }
+                }
+            ).execute()
+        except Exception as e:
+            print(f"[YOUTUBE BAN ERROR]: {e}")
+
     def calculate_level_up(self, current_xp: int, current_level: int) -> int:
         xp_needed = current_level * 150
         if current_xp >= xp_needed:
             return current_level + 1
         return current_level
 
-    async def process_message(self, yt_user_id: str, username: str, message_text: str, message_id: str, streamer_id: int, live_chat_id: str):
+
+    # ---------------------------------------------------------
+    # CORE MESSAGE PROCESSOR
+    # ---------------------------------------------------------
+    async def process_message(self, yt_user_id: str, username: str, message_text: str, message_id: str, streamer_id: int, live_chat_id: str, is_mod: bool):
         db = SessionLocal()
         try:
             streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
@@ -102,6 +147,56 @@ class YouTubeChatMonitor:
 
             text_words = message_text.lower().split()
             clean_username = username.lower().replace("@", "")
+            command_text = message_text.strip().lower()
+
+            # -----------------------------------------
+            # NEW: MODERATOR COMMANDS
+            # -----------------------------------------
+            if is_mod and command_text.startswith("!"):
+                parts = command_text.split(" ")
+                command = parts[0]
+                args = parts[1:]
+
+                if command == "!so" and args:
+                    target_channel = args[0].replace("@", "")
+                    await self.send_message(f"🌟 Huge shoutout to {target_channel}! Go check out their amazing content and drop a sub!", live_chat_id)
+                    return
+                    
+                elif command == "!warn" and args:
+                    target_user = args[0].replace("@", "")
+                    reason = " ".join(args[1:]) if len(args) > 1 else "No reason provided."
+                    await self.send_message(f"⚠️ @{target_user}, please follow the channel rules. Reason: {reason}", live_chat_id)
+                    return
+                    
+                elif command == "!ai":
+                    if args and args[0] == "off":
+                        self.is_ai_active = False
+                        await self.send_message("🤖 AI Co-Host has been paused by a moderator.", live_chat_id)
+                    elif args and args[0] == "on":
+                        self.is_ai_active = True
+                        await self.send_message("🤖 AI Co-Host is back online!", live_chat_id)
+                    return
+                    
+                elif command == "!giveaway" and args and args[0] == "start":
+                    await self.send_message("🎉 A giveaway has started! Type !join to enter!", live_chat_id)
+                    return
+
+                elif command == "!monitor" and args:
+                    target_user = args[0].lower().replace("@", "")
+                    self.monitored_users[target_user] = {
+                        "yt_user_id": None, # Will populate when they speak
+                        "strikes": 0,
+                        "last_checked": datetime.min.replace(tzinfo=timezone.utc)
+                    }
+                    await self.send_message(f"👁️ AI is now actively monitoring {target_user} for violations.", live_chat_id)
+                    return
+                    
+                elif command == "!unmonitor" and args:
+                    target_user = args[0].lower().replace("@", "")
+                    if target_user in self.monitored_users:
+                        del self.monitored_users[target_user]
+                        await self.send_message(f"🛑 AI has stopped monitoring {target_user}.", live_chat_id)
+                    return
 
             # -----------------------------------------
             # The VIP Arrival Greeter
@@ -137,12 +232,49 @@ class YouTubeChatMonitor:
                 return 
 
             # -----------------------------------------
-            # COMMANDS & CUSTOM COMMAND BUILDER
+            # MODERATION 3: Escalating AI Scan
             # -----------------------------------------
-            command_text = message_text.strip().lower()
-            
-            # Build a new command via chat
-            if message_text.lower().startswith("/goddess "):
+            if clean_username in self.monitored_users and self.is_ai_active:
+                user_data = self.monitored_users[clean_username]
+                now = datetime.now(timezone.utc)
+                
+                # Save their ID so we can ban/timeout if necessary
+                user_data["yt_user_id"] = yt_user_id
+                
+                time_since_last_check = (now - user_data["last_checked"]).total_seconds()
+                
+                # 5-MINUTE COOLDOWN CHECK
+                if time_since_last_check >= 300: 
+                    user_data["last_checked"] = now
+                    
+                    eval_result = await self.ai.evaluate_for_moderation(username, message_text)
+                    
+                    if eval_result.get("flagged"):
+                        user_data["strikes"] += 1
+                        strike_count = user_data["strikes"]
+                        reason = eval_result.get('reason', 'AI flagged')
+                        
+                        await self.delete_message(message_id)
+                        self.send_discord_log(webhook_url, f"AI Strike {strike_count}", username, message_text, reason)
+                        
+                        if strike_count == 1:
+                            await self.send_message(f"⚠️ @{username}, your message was flagged for inappropriate behavior. Please follow the rules.", live_chat_id)
+                            
+                        elif strike_count == 2:
+                            await self.send_message(f"⏱️ @{username} has been timed out by the AI for continued violations.", live_chat_id)
+                            await self.timeout_user(live_chat_id, yt_user_id, duration_seconds=300)
+                            
+                        elif strike_count >= 3:
+                            await self.send_message(f"🚫 @{username} has been hidden from the channel for repeated violations.", live_chat_id)
+                            await self.ban_user(live_chat_id, yt_user_id)
+                            del self.monitored_users[clean_username]
+                        return
+
+
+            # -----------------------------------------
+            # CUSTOM COMMAND BUILDER
+            # -----------------------------------------
+            if message_text.lower().startswith("/goddess ") and is_mod:
                 parts = message_text.split(" ", 2)
                 if len(parts) >= 3:
                     trigger = parts[1].lower()
@@ -151,34 +283,9 @@ class YouTubeChatMonitor:
                     await self.send_message(f"✅ Command '{trigger}' is now live!", live_chat_id)
                 return
             
-            # Execute dynamically created commands
             if command_text in self.custom_commands:
                 await self.send_message(self.custom_commands[command_text], live_chat_id)
                 return
-
-            # Standard Mod Commands
-            if command_text.startswith("!watch "):
-                target = message_text.split("@")[-1].strip()
-                self.watched_users.add(target.lower())
-                await self.send_message(f"👁️ Goddess AI is monitoring {target}.", live_chat_id)
-                return
-            elif command_text.startswith("!unwatch "):
-                target = message_text.split("@")[-1].strip()
-                self.watched_users.discard(target.lower())
-                await self.send_message(f"✅ Goddess AI stopped monitoring {target}.", live_chat_id)
-                return
-
-            # -----------------------------------------
-            # MODERATION 3: AI Scan
-            # -----------------------------------------
-            is_watched = username.lower() in self.watched_users
-            if len(text_words) >= 3 or is_watched:
-                eval_result = await self.ai.evaluate_for_moderation(username, message_text)
-                if eval_result.get("flagged"):
-                    await self.delete_message(message_id)
-                    reason = eval_result.get('reason', 'AI flagged')
-                    self.send_discord_log(webhook_url, "AI Scan", username, message_text, reason)
-                    return 
 
             # -----------------------------------------
             # REWARDS & ECONOMY
@@ -295,9 +402,13 @@ class YouTubeChatMonitor:
                         
                         for item in response.get("items", []):
                             msg_text = item["snippet"]["textMessageDetails"]["messageText"]
-                            author_name = item["authorDetails"]["displayName"]
-                            author_id = item["authorDetails"]["channelId"]
+                            author_details = item["authorDetails"]
+                            author_name = author_details["displayName"]
+                            author_id = author_details["channelId"]
                             msg_id = item["id"]
+                            
+                            # Determine if user is a mod/owner
+                            is_mod = author_details.get("isChatModerator", False) or author_details.get("isChatOwner", False)
                             
                             await self.process_message(
                                 yt_user_id=author_id, 
@@ -305,7 +416,8 @@ class YouTubeChatMonitor:
                                 message_text=msg_text, 
                                 message_id=msg_id,
                                 streamer_id=streamer_id,
-                                live_chat_id=chat_id
+                                live_chat_id=chat_id,
+                                is_mod=is_mod
                             )
                     except Exception as fetch_err:
                         print(f"[STREAM ENDED] 🔴 Disconnected from chat.")
