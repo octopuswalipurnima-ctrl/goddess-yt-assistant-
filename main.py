@@ -21,23 +21,22 @@ app = FastAPI(title="Goddess Stream Manager")
 # -----------------------------------------
 # MIDDLEWARE & BROWSER SESSIONS
 # -----------------------------------------
-# This enables cookies so the dashboard remembers who is logged in
 app.add_middleware(
     SessionMiddleware, 
     secret_key="super-secret-goddess-key-change-later"
 )
 
-# AUTOMATIC SAFEGUARD: Dynamically creates static/templates folders if Git missed them
+# AUTOMATIC SAFEGUARD: Creates folders if Git missed them
 if not os.path.exists("static"):
     os.makedirs("static")
 if not os.path.exists("templates"):
     os.makedirs("templates")
 
-# Mount assets and specify the HTML template directory safely
+# Mount assets and specify templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# Mount our authentication and secondary routers
+# Mount authentication and dashboard routers
 app.include_router(dashboard_router)
 app.include_router(auth_router)
 
@@ -47,17 +46,14 @@ app.include_router(auth_router)
 # -----------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
-    # Check browser cookies to see if a creator is logged in
     streamer_id = request.session.get("streamer_id")
     streamer_name = request.session.get("streamer_name")
     
-    # Provide temporary settings for the UI toggles
     settings = {
         "ai_cohost_enabled": True,
         "giveaway_reminders_enabled": False
     }
     
-    # If the user is NOT logged in, show the login gate
     if not streamer_id:
         return templates.TemplateResponse("index.html", {
             "request": request,
@@ -66,10 +62,8 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             "settings": settings
         })
         
-    # If logged in, fetch ONLY the viewers that belong to THIS streamer's channel
     viewers = db.query(User).join(XP).filter(XP.streamer_id == streamer_id).all()
     
-    # Safely hand the variables over to index.html
     return templates.TemplateResponse("index.html", {
         "request": request,
         "streamer_name": streamer_name,
@@ -80,45 +74,42 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
 @app.post("/toggle-ai")
 async def toggle_ai(mode: str = Form(...)):
     print(f"[DASHBOARD ACTION] Toggled setting: {mode}")
-    # Refresh the page instantly
     return RedirectResponse(url="/", status_code=303)
 
 @app.post("/manual-announcement")
 async def manual_announcement(message: str = Form(...)):
     print(f"[DASHBOARD ACTION] Sending manual announcement: {message}")
-    # Refresh the page instantly
     return RedirectResponse(url="/", status_code=303)
 
 
 # -----------------------------------------
 # BACKGROUND WORKERS & STARTUP LOGIC
 # -----------------------------------------
-# Storing running async tasks in a persistent global list prevents 
-# Python 3.12's Garbage Collector from killing our background bots.
 running_tasks = []
 
 @app.on_event("startup")
 async def startup_event():
     print("[STARTUP] Initializing systems...")
-    
-    # 1. Initialize SQLite database tables
     init_db()
-    
-    # 2. Fire up background cron loops/schedulers
     start_scheduler()
     
-    # 3. Mount async worker integrations securely
     yt_monitor = YouTubeChatMonitor()
     
-    # Spawn background worker tasks for both systems concurrently
     task1 = asyncio.create_task(yt_monitor.run())
     task2 = asyncio.create_task(start_discord_bot())
     
-    # Protect both tasks from unexpected garbage collection dropouts
     running_tasks.append(task1)
     running_tasks.append(task2)
     
     print("[STARTUP] Web Admin Dashboard, YouTube Engine, and Discord Bot are active!")
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    # FIX: Dynamically read the port assigned by Railway, fallback to 8000 only for local testing
+    railway_port = int(os.environ.get("PORT", 8000))
+    
+    # In production container environments like Railway, reload should be False to prevent sub-process crash loops
+    should_reload = False if os.environ.get("PORT") else True
+    
+    print(f"[BOOT] Launching Uvicorn server on port {railway_port}...")
+    uvicorn.run("main:app", host="0.0.0.0", port=railway_port, reload=should_reload)
+    
