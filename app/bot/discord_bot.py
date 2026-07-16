@@ -1,87 +1,102 @@
+import re
 import discord
-from discord import app_commands
+from discord.ext import commands
 from app.database.connection import SessionLocal
-from app.database.models import DiscordLink, User, XP, Coin, Streamer
+from app.database.models import User, DiscordLink
 from app.utils.config import Config
 
-class GoddessDiscordBot(discord.Client):
-    def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True
-        intents.members = True
-        super().__init__(intents=intents)
-        self.tree = app_commands.CommandTree(self)
+# ---------------------------------------------------------
+# IMPORT SHARED MEMORY: Connects Discord to YouTube Engine
+# ---------------------------------------------------------
+from app.bot.youtube_chat import DETECTED_VIDEOS
 
-    async def setup_hook(self):
-        # Syncs commands globally so they show up as slash options instantly
-        await self.tree.sync()
+# Enable intents (Message Content is REQUIRED for the link scanner!)
+intents = discord.Intents.default()
+intents.message_content = True
 
-bot_instance = GoddessDiscordBot()
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-@bot_instance.tree.command(name="link", description="Link your YouTube account with Discord to sync your level and coins.")
-@app_commands.describe(code="The unique code generated when you chat on the stream (e.g. GODDESS-XXXX)")
+@bot.event
+async def on_ready():
+    print(f"[DISCORD BOT] Logged in as {bot.user.name} and ready to scan for links!")
+    try:
+        synced = await bot.tree.sync()
+        print(f"[DISCORD BOT] Synced {len(synced)} slash command(s).")
+    except Exception as e:
+        print(f"[DISCORD BOT ERROR] Syncing commands: {e}")
+
+# ---------------------------------------------------------
+# THE LINK SCANNER: Feeds the YouTube API Quota Saver
+# ---------------------------------------------------------
+@bot.event
+async def on_message(message):
+    # Ignore our own bot messages
+    if message.author == bot.user:
+        return
+
+    # Look for YouTube links (matches both youtube.com/watch?v= and youtu.be/)
+    yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})"
+    match = re.search(yt_regex, message.content)
+    
+    if match:
+        video_id = match.group(1)
+        print(f"[DISCORD BOT] Detected YouTube Link from {message.author.name}! Passing Video ID '{video_id}' to YouTube Engine...")
+        
+        # Send the Video ID to the shared variable in youtube_chat.py
+        DETECTED_VIDEOS.add(video_id)
+        
+    # VERY IMPORTANT: Without this, slash commands like /link and /profile will break!
+    await bot.process_commands(message)
+
+# ---------------------------------------------------------
+# SLASH COMMANDS
+# ---------------------------------------------------------
+@bot.tree.command(name="link", description="Link your YouTube account using your secret code.")
 async def link_account(interaction: discord.Interaction, code: str):
     db = SessionLocal()
     try:
-        link_record = db.query(DiscordLink).filter(DiscordLink.sync_code == code.strip().upper()).first()
+        link_record = db.query(DiscordLink).filter(DiscordLink.sync_code == code.upper()).first()
         if not link_record:
-            await interaction.response.send_message("❌ Invalid sync code. Check your spelling or chat on stream to update.", ephemeral=True)
+            await interaction.response.send_message("❌ Invalid code. Type `!link` in the YouTube chat to get your code.", ephemeral=True)
             return
         
-        # UPGRADED: SaaS Database checks if the discord_id column is already filled
         if link_record.discord_id:
-            await interaction.response.send_message("⚠️ This code has already been successfully claimed.", ephemeral=True)
+            await interaction.response.send_message("⚠️ This code has already been used.", ephemeral=True)
             return
-
-        # Bind Discord ID to our user profile record
+            
         link_record.discord_id = str(interaction.user.id)
         db.commit()
-        
-        await interaction.response.send_message(f"✅ Success! Connected your Discord profile to stream user: **{link_record.user.username}**.", ephemeral=True)
-    except Exception as e:
-        db.rollback()
-        await interaction.response.send_message("❌ An error occurred during database alignment.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Success! Your YouTube account is now linked to your Discord.", ephemeral=True)
     finally:
         db.close()
 
-@bot_instance.tree.command(name="profile", description="Check your current Stream Level, XP progression, and Coin balance.")
+@bot.tree.command(name="profile", description="View your global Streamer Loyalty Profile.")
 async def view_profile(interaction: discord.Interaction):
     db = SessionLocal()
     try:
         link_record = db.query(DiscordLink).filter(DiscordLink.discord_id == str(interaction.user.id)).first()
         if not link_record:
-            await interaction.response.send_message("❌ Your account is not linked yet. Use `/link [your-code]` first!", ephemeral=True)
+            await interaction.response.send_message("❌ You haven't linked your account yet. Use `/link` first!", ephemeral=True)
             return
 
-        user = link_record.user
-        embed = discord.Embed(title=f"👑 Goddess SaaS Profile: {user.username}", color=discord.Color.gold())
+        user = db.query(User).filter(User.id == link_record.user_id).first()
         
-        # UPGRADED: Dynamically loop through every channel the user has earned XP in!
-        if not user.xps:
-            embed.add_field(name="Status", value="No stats recorded yet. Start chatting in a supported stream!", inline=False)
-        else:
-            for xp in user.xps:
-                # Get the channel name safely
-                channel_name = xp.streamer.channel_name if xp.streamer else "Unknown Channel"
-                
-                # Find matching coins for this specific streamer
-                coin_record = next((c for c in user.coins if c.streamer_id == xp.streamer_id), None)
-                coin_balance = coin_record.balance if coin_record else 0
-
-                embed.add_field(
-                    name=f"📺 {channel_name}", 
-                    value=f"**Level:** {xp.level} | **XP:** {xp.current_xp} | **Coins:** 🪙 {coin_balance}", 
-                    inline=False
-                )
+        # Calculate Global Platform Stats across all streamers they watch
+        total_xp = sum(xp.current_xp for xp in user.xps) if user.xps else 0
+        highest_level = max([xp.level for xp in user.xps]) if user.xps else 1
+        coin_balance = user.coins[0].balance if user.coins else 0
         
-        embed.set_footer(text="Keep watching connected streams to earn more levels and rewards!")
+        embed = discord.Embed(title=f"👑 {user.username}'s Profile", color=discord.Color.purple())
+        embed.add_field(name="Highest Level", value=f"⭐ {highest_level}", inline=True)
+        embed.add_field(name="Global XP", value=f"✨ {total_xp}", inline=True)
+        embed.add_field(name="Coins", value=f"🪙 {coin_balance}", inline=True)
         
         await interaction.response.send_message(embed=embed)
     finally:
         db.close()
 
 async def start_discord_bot():
-    try:
-        await bot_instance.start(Config.DISCORD_BOT_TOKEN)
-    except Exception as e:
-        print(f"Discord Bot failed to launch: {e}")
+    if not Config.DISCORD_BOT_TOKEN:
+        print("[DISCORD BOT] Skipping... No token provided.")
+        return
+    await bot.start(Config.DISCORD_BOT_TOKEN)
