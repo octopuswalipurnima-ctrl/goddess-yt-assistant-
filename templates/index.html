@@ -7,90 +7,110 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="header">
-        <h1>👑 Goddess AI <span>Control Center</span></h1>
-    </div>
-
-    <div class="grid">
-        <!-- Automation Card -->
-        <div class="card">
-            <h2>🤖 AI System Controls</h2>
-            <form action="/toggle-ai" method="post">
-                <input type="hidden" name="mode" value="ai_cohost_enabled">
-                <button type="submit">
-                    Toggle Co-Host: 
-                    <span class="status {{ 'enabled' if settings.ai_cohost_enabled else 'disabled' }}">
-                        {{ "ENABLED" if settings.ai_cohost_enabled else "DISABLED" }}
-                    </span>
-                </button>
-            </form>
-            <form action="/toggle-ai" method="post">
-                <input type="hidden" name="mode" value="giveaway_reminders_enabled">
-                <button type="submit" style="background: #3f3f46;">
-                    Toggle Giveaway Automations: 
-                    <span class="status {{ 'enabled' if settings.giveaway_reminders_enabled else 'disabled' }}">
-                        {{ "ENABLED" if settings.giveaway_reminders_enabled else "DISABLED" }}
-                    </span>
-                </button>
-            </form>
+    {% if not streamer_name %}
+        <!-- ========================================= -->
+        <!-- LOGGED OUT VIEW: THE LOGIN GATE           -->
+        <!-- ========================================= -->
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 80vh; text-align: center;">
+            <h1 style="font-size: 3.5rem; margin-bottom: 10px; font-weight: 800; letter-spacing: 1px;">👑 Goddess AI</h1>
+            <p style="color: var(--text-muted); margin-bottom: 40px; font-size: 1.1rem; max-width: 500px;">The ultimate multi-dialect chat moderator and loyalty engine for professional live broadcasters.</p>
+            <a href="/login" style="background: var(--accent-primary); color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 1.2rem; transition: all 0.2s ease; box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4);">
+                Log in with YouTube
+            </a>
+        </div>
+    {% else %}
+        <!-- ========================================= -->
+        <!-- LOGGED IN VIEW: THE DASHBOARD             -->
+        <!-- ========================================= -->
+        <div class="header" style="justify-content: space-between;">
+            <h1>👑 Goddess AI <span>Control Center</span></h1>
+            <div style="display: flex; align-items: center; gap: 20px;">
+                <span style="color: var(--text-muted); font-size: 0.95rem;">Welcome, <strong style="color: white;">{{ streamer_name }}</strong></span>
+                <a href="/logout" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; text-decoration: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 0.9rem; transition: background 0.2s ease; border: 1px solid rgba(239, 68, 68, 0.2);">Logout</a>
+            </div>
         </div>
 
-        <!-- Live Actions Card -->
-        <div class="card">
-            <h2>📢 Trigger Live Announcement</h2>
-            <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
-                Push a highlighted message directly into the YouTube live chat.
-            </p>
-            <form action="/manual-announcement" method="post">
-                <input type="text" name="message" placeholder="Type announcement here..." required>
-                <button type="submit">Send to Stream Chat</button>
-            </form>
+        <div class="grid">
+            <!-- Automation Card -->
+            <div class="card">
+                <h2>🤖 AI System Controls</h2>
+                <form action="/toggle-ai" method="post">
+                    <input type="hidden" name="mode" value="ai_cohost_enabled">
+                    <button type="submit">
+                        Toggle Co-Host: 
+                        <span class="status {{ 'enabled' if settings.ai_cohost_enabled else 'disabled' }}">
+                            {{ "ENABLED" if settings.ai_cohost_enabled else "DISABLED" }}
+                        </span>
+                    </button>
+                </form>
+                <form action="/toggle-ai" method="post">
+                    <input type="hidden" name="mode" value="giveaway_reminders_enabled">
+                    <button type="submit" style="background: #3f3f46;">
+                        Toggle Giveaway Automations: 
+                        <span class="status {{ 'enabled' if settings.giveaway_reminders_enabled else 'disabled' }}">
+                            {{ "ENABLED" if settings.giveaway_reminders_enabled else "DISABLED" }}
+                        </span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Live Actions Card -->
+            <div class="card">
+                <h2>📢 Trigger Live Announcement</h2>
+                <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
+                    Push a highlighted message directly into the YouTube live chat.
+                </p>
+                <form action="/manual-announcement" method="post">
+                    <input type="text" name="message" placeholder="Type announcement here..." required>
+                    <button type="submit">Send to Stream Chat</button>
+                </form>
+            </div>
+            
+            <!-- Leaderboard Card -->
+            <div class="card" style="grid-column: 1 / -1;">
+                <h2>🏆 Viewer Loyalty & Economy Leaderboard</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Level</th>
+                            <th>Total XP</th>
+                            <th>Coin Balance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for viewer in viewers %}
+                        <tr>
+                            <td style="font-weight: 600;">{{ viewer.username }}</td>
+                            
+                            <!-- Safe fallback check for level/XP lists -->
+                            <td>
+                                {% if viewer.xps and viewer.xps|length > 0 %}
+                                    {{ viewer.xps[0].level }}
+                                {% else %}
+                                    1
+                                {% endif %}
+                            </td>
+                            <td style="color: var(--text-muted);">
+                                {% if viewer.xps and viewer.xps|length > 0 %}
+                                    {{ viewer.xps[0].current_xp }} XP
+                                {% else %}
+                                    0 XP
+                                {% endif %}
+                            </td>
+                            <td style="color: #fbbf24; font-weight: bold;">
+                                {% if viewer.coins and viewer.coins|length > 0 %}
+                                    {{ viewer.coins[0].balance }} 🪙
+                                {% else %}
+                                    0 🪙
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
-        
-        <!-- Leaderboard Card -->
-        <div class="card" style="grid-column: 1 / -1;">
-            <h2>🏆 Viewer Loyalty & Economy Leaderboard</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Username</th>
-                        <th>Level</th>
-                        <th>Total XP</th>
-                        <th>Coin Balance</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for viewer in viewers %}
-                    <tr>
-                        <td style="font-weight: 600;">{{ viewer.username }}</td>
-                        
-                        <!-- Safe fallback check for level/XP lists -->
-                        <td>
-                            {% if viewer.xps and viewer.xps|length > 0 %}
-                                {{ viewer.xps[0].level }}
-                            {% else %}
-                                1
-                            {% endif %}
-                        </td>
-                        <td style="color: var(--text-muted);">
-                            {% if viewer.xps and viewer.xps|length > 0 %}
-                                {{ viewer.xps[0].current_xp }} XP
-                            {% else %}
-                                0 XP
-                            {% endif %}
-                        </td>
-                        <td style="color: #fbbf24; font-weight: bold;">
-                            {% if viewer.coins and viewer.coins|length > 0 %}
-                                {{ viewer.coins[0].balance }} 🪙
-                            {% else %}
-                                0 🪙
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+    {% endif %}
 </body>
 </html>

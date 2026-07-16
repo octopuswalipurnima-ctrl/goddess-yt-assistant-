@@ -5,10 +5,11 @@ from fastapi import FastAPI, Request, Depends, Form
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session
 
 from app.database.connection import init_db, get_db
-from app.database.models import User
+from app.database.models import User, XP
 from app.dashboard.auth import router as auth_router
 from app.dashboard.routes import router as dashboard_router
 from app.bot.youtube_chat import YouTubeChatMonitor
@@ -16,6 +17,15 @@ from app.bot.discord_bot import start_discord_bot
 from app.services.scheduler import start_scheduler
 
 app = FastAPI(title="Goddess Stream Manager")
+
+# -----------------------------------------
+# MIDDLEWARE & BROWSER SESSIONS
+# -----------------------------------------
+# This enables cookies so the dashboard remembers who is logged in
+app.add_middleware(
+    SessionMiddleware, 
+    secret_key="super-secret-goddess-key-change-later"
+)
 
 # AUTOMATIC SAFEGUARD: Dynamically creates static/templates folders if Git missed them
 if not os.path.exists("static"):
@@ -37,8 +47,9 @@ app.include_router(auth_router)
 # -----------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
-    # Fetch all users to populate the Leaderboard table dynamically
-    viewers = db.query(User).all()
+    # Check browser cookies to see if a creator is logged in
+    streamer_id = request.session.get("streamer_id")
+    streamer_name = request.session.get("streamer_name")
     
     # Provide temporary settings for the UI toggles
     settings = {
@@ -46,9 +57,22 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
         "giveaway_reminders_enabled": False
     }
     
+    # If the user is NOT logged in, show the login gate
+    if not streamer_id:
+        return templates.TemplateResponse("index.html", {
+            "request": request,
+            "streamer_name": None,
+            "viewers": [],
+            "settings": settings
+        })
+        
+    # If logged in, fetch ONLY the viewers that belong to THIS streamer's channel
+    viewers = db.query(User).join(XP).filter(XP.streamer_id == streamer_id).all()
+    
     # Safely hand the variables over to index.html
     return templates.TemplateResponse("index.html", {
         "request": request,
+        "streamer_name": streamer_name,
         "viewers": viewers,
         "settings": settings
     })
@@ -69,7 +93,6 @@ async def manual_announcement(message: str = Form(...)):
 # -----------------------------------------
 # BACKGROUND WORKERS & STARTUP LOGIC
 # -----------------------------------------
-# --- THE TASK PRESERVATION FIX ---
 # Storing running async tasks in a persistent global list prevents 
 # Python 3.12's Garbage Collector from killing our background bots.
 running_tasks = []
