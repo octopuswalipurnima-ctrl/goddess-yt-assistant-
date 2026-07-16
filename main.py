@@ -57,7 +57,7 @@ templates = Jinja2Templates(directory="templates")
 
 
 # ---------------------------------------------------------
-# FRONTEND DASHBOARD ROUTES (WITH GUEST & OBS WIDGETS)
+# FRONTEND DASHBOARD ROUTES
 # ---------------------------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
@@ -130,6 +130,7 @@ async def guest_join(request: Request, stream_url: str = Form(...)):
         
     return RedirectResponse(url="/?guest=true", status_code=303)
 
+
 # ---------------------------------------------------------
 # OBS WEBSOCKET & WIDGET ROUTES
 # ---------------------------------------------------------
@@ -167,6 +168,28 @@ async def test_alert(request: Request, db: Session = Depends(get_db)):
                 "amount": "$50.00"
             }
             await overlay_manager.send_alert(streamer.server_sync_code, test_payload)
+    return RedirectResponse(url="/", status_code=303)
+
+@app.post("/custom-alert")
+async def custom_alert(
+    request: Request,
+    alert_title: str = Form(...),
+    alert_message: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Allows streamers to fire custom on-screen widgets via the dashboard."""
+    streamer_id = request.session.get("streamer_id")
+    if streamer_id:
+        streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+        if streamer and streamer.server_sync_code:
+            custom_payload = {
+                "type": "alert",
+                "event_type": "newSponsorEvent", # Reuses the green glow styling from memberships
+                "author": alert_title,
+                "message": alert_message,
+                "amount": "📢 ANNOUNCEMENT"
+            }
+            await overlay_manager.send_alert(streamer.server_sync_code, custom_payload)
     return RedirectResponse(url="/", status_code=303)
 
 
