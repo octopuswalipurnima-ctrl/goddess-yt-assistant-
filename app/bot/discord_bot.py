@@ -18,6 +18,9 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Set this to your actual Live Notification Channel ID where Sapphire posts
+LIVE_NOTIFICATION_CHANNEL_ID = 1443499513137594380  # Replace with actual ID
+
 @bot.event
 async def on_ready():
     print(f"[DISCORD BOT] Logged in as {bot.user.name} and ready to scan for links!")
@@ -36,9 +39,29 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Look for YouTube links (matches both youtube.com/watch?v= and youtu.be/)
-    yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})"
-    match = re.search(yt_regex, message.content)
+    # --- SAPPHIRE BOT INTERCEPTOR LOGIC ---
+    # Only process bot messages if they come from your specific live notification channel
+    if message.author.bot and message.channel.id != LIVE_NOTIFICATION_CHANNEL_ID:
+        return
+
+    content_to_check = message.content.lower()
+
+    if message.channel.id == LIVE_NOTIFICATION_CHANNEL_ID:
+        # 1. Extract text and links hidden inside Sapphire's Embed cards
+        if message.embeds:
+            for embed in message.embeds:
+                if embed.title:
+                    content_to_check += f" {embed.title.lower()}"
+                if embed.description:
+                    content_to_check += f" {embed.description.lower()}"
+                # Sapphire often hides the clickable link in the embed.url attribute
+                if embed.url:
+                    content_to_check += f" {embed.url.lower()}"
+
+    # 2. Look for YouTube links in the combined content
+    # Updated Regex to reliably catch youtube.com/live/ URLs which Sapphire often uses
+    yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})"
+    match = re.search(yt_regex, content_to_check)
     
     if match:
         video_id = match.group(1)
