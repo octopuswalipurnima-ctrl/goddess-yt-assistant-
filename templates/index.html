@@ -131,7 +131,7 @@
             <p style="color: #9ca3af; margin-top: 5px;">Your dashboard is active and synced.</p>
         </div>
 
-        <!-- NEW: WIDGET THEME GALLERY -->
+        <!-- WIDGET THEME GALLERY -->
         <div class="panel">
             <h3>🎨 Widget Theme Gallery</h3>
             <p style="color: #9ca3af; margin-bottom: 20px;">Customize how your alerts look on stream.</p>
@@ -180,7 +180,7 @@
                 
                 {% if request.query_params.get('theme_updated') == 'true' %}
                     <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f6; padding: 12px; border-radius: 8px; color: #3b82f6; margin-bottom: 15px; font-weight: bold;">
-                        🎨 Theme updated successfully! Check your OBS to see the changes.
+                        🎨 Theme updated successfully! Test it below.
                     </div>
                 {% endif %}
 
@@ -195,11 +195,23 @@
             </div>
         </div>
 
-        <!-- OBS WIDGET PANEL -->
+        <!-- OBS WIDGET PANEL (NOW WITH LIVE PREVIEW) -->
         <div class="panel">
             <h3>🎥 Stream Alerts & Widgets</h3>
-            <p style="color: #9ca3af; margin-bottom: 15px;">Paste this Master Browser Source into OBS or Prism. It handles all on-screen graphics automatically.</p>
+            <p style="color: #9ca3af; margin-bottom: 15px;">Preview your alerts in real-time, then paste the Master Browser Source into OBS.</p>
             
+            <!-- NEW: LIVE PREVIEW IFRAME -->
+            <div style="margin-bottom: 20px;">
+                <h4 style="margin-top: 0; margin-bottom: 10px; color: #e5e7eb;">📺 Live Preview (Click 'Test Alert' below to see it!)</h4>
+                <div style="width: 100%; height: 280px; background-color: #0a0a0c; border-radius: 8px; border: 2px dashed #555; overflow: hidden; position: relative; display: flex; justify-content: center;">
+                    <!-- A checkerboard background pattern to simulate OBS transparency -->
+                    <div style="position: absolute; inset: 0; background-image: linear-gradient(45deg, #18181b 25%, transparent 25%, transparent 75%, #18181b 75%, #18181b), linear-gradient(45deg, #18181b 25%, transparent 25%, transparent 75%, #18181b 75%, #18181b); background-size: 20px 20px; background-position: 0 0, 10px 10px; opacity: 0.7; z-index: 1;"></div>
+                    
+                    <!-- The actual overlay window rendering over the checkerboard -->
+                    <iframe src="/overlay/{{ settings.server_sync_code }}" style="width: 100%; height: 100%; border: none; z-index: 2; position: relative;"></iframe>
+                </div>
+            </div>
+
             <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                 <input type="text" id="obsLink" readonly value="https://{{ request.headers.get('host') }}/overlay/{{ settings.server_sync_code }}" style="flex: 1; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #111; color: #a855f7; font-family: monospace; font-size: 1.1em;">
                 <button onclick="copyOBS()" style="background: #3b82f6; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">Copy</button>
@@ -207,14 +219,14 @@
 
             <form action="/test-alert" method="POST" style="margin-bottom: 20px;">
                 <button type="submit" style="background: #22c55e; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%;">
-                    🔔 Send Test Alert to OBS
+                    🔔 Send Test Alert
                 </button>
             </form>
 
             <!-- CUSTOM WIDGET INJECTOR -->
             <div style="border-top: 1px solid #333; padding-top: 20px;">
                 <h4 style="margin-top: 0; margin-bottom: 10px; color: #e5e7eb;">📢 Fire Custom On-Screen Alert</h4>
-                <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Instantly beam an announcement or shoutout to your live stream.</p>
+                <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Instantly beam an announcement or shoutout to your live stream (and the preview box above!).</p>
                 <form action="/custom-alert" method="POST" style="display: flex; flex-direction: column; gap: 10px;">
                     <input type="text" name="alert_title" placeholder="Main Heading (e.g., GIVEAWAY TIME!)" style="padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
                     <input type="text" name="alert_message" placeholder="Sub-message (e.g., Type !joinbr in chat now to enter the arena!)" style="padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
