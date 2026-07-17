@@ -131,7 +131,71 @@
             <p style="color: #9ca3af; margin-top: 5px;">Your dashboard is active and synced.</p>
         </div>
 
-        <!-- OBS WIDGET PANEL (UPDATED) -->
+        <!-- NEW: WIDGET THEME GALLERY -->
+        <div class="panel">
+            <h3>🎨 Widget Theme Gallery</h3>
+            <p style="color: #9ca3af; margin-bottom: 20px;">Customize how your alerts look on stream.</p>
+            
+            <!-- Free Themes Grid -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px;">
+                
+                <form action="/select-theme" method="POST" style="background: #2a2a32; border: 2px solid #a855f7; border-radius: 8px; padding: 15px; text-align: center;">
+                    <input type="hidden" name="theme_name" value="neon">
+                    <h4 style="margin: 0 0 10px 0; color: white;">🟣 Neon Glow</h4>
+                    <p style="font-size: 0.8em; color: #9ca3af; margin-bottom: 15px;">The default Goddess AI look.</p>
+                    <button type="submit" style="background: #a855f7; color: white; padding: 8px 15px; border: none; border-radius: 6px; cursor: pointer; width: 100%;">Select (Free)</button>
+                </form>
+
+                <form action="/select-theme" method="POST" style="background: #2a2a32; border: 2px solid #333; border-radius: 8px; padding: 15px; text-align: center;">
+                    <input type="hidden" name="theme_name" value="cyberpunk">
+                    <h4 style="margin: 0 0 10px 0; color: #eab308;">🟡 Cyberpunk</h4>
+                    <p style="font-size: 0.8em; color: #9ca3af; margin-bottom: 15px;">Yellow/Black gritty aesthetic.</p>
+                    <button type="submit" style="background: #333; color: white; padding: 8px 15px; border: none; border-radius: 6px; cursor: pointer; width: 100%;">Select (Free)</button>
+                </form>
+
+                <form action="/select-theme" method="POST" style="background: #2a2a32; border: 2px solid #333; border-radius: 8px; padding: 15px; text-align: center;">
+                    <input type="hidden" name="theme_name" value="minimal">
+                    <h4 style="margin: 0 0 10px 0; color: white;">⚪ Minimalist</h4>
+                    <p style="font-size: 0.8em; color: #9ca3af; margin-bottom: 15px;">Clean, modern, no borders.</p>
+                    <button type="submit" style="background: #333; color: white; padding: 8px 15px; border: none; border-radius: 6px; cursor: pointer; width: 100%;">Select (Free)</button>
+                </form>
+            </div>
+
+            <!-- PRO: Custom Upload -->
+            <div style="border-top: 1px dashed #444; padding-top: 20px;">
+                <h4 style="margin-top: 0; color: #fbbf24;">💎 Pro: Upload Custom Widget</h4>
+                <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Write your own CSS or inject your own graphics. <strong>Requires a one-time setup fee of ₹20.</strong></p>
+                
+                {% if request.query_params.get('error') == 'payment_required_20_inr' %}
+                    <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; padding: 12px; border-radius: 8px; color: #ef4444; margin-bottom: 15px; font-weight: bold;">
+                        ❌ Payment Required: You must pay ₹20 to unlock custom widgets. (Redirecting to Razorpay...)
+                    </div>
+                {% endif %}
+
+                {% if request.query_params.get('custom_success') == 'dev_bypass' %}
+                    <div style="background: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; padding: 12px; border-radius: 8px; color: #4ade80; margin-bottom: 15px; font-weight: bold;">
+                        ✅ Dev Auth Confirmed. Custom widget uploaded for free!
+                    </div>
+                {% endif %}
+                
+                {% if request.query_params.get('theme_updated') == 'true' %}
+                    <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f6; padding: 12px; border-radius: 8px; color: #3b82f6; margin-bottom: 15px; font-weight: bold;">
+                        🎨 Theme updated successfully! Check your OBS to see the changes.
+                    </div>
+                {% endif %}
+
+                <form action="/upload-custom-widget" method="POST" style="display: flex; flex-direction: column; gap: 10px;">
+                    <textarea name="custom_css" rows="4" placeholder="/* Paste your custom CSS here */" style="padding: 10px; border-radius: 6px; border: 1px solid #444; background: #111; color: #a855f7; font-family: monospace;" required></textarea>
+                    
+                    <button type="submit" style="background: #fbbf24; color: #000; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
+                        Upload & Pay ₹20
+                    </button>
+                    <p style="font-size: 0.75em; color: #6b7280; text-align: center; margin: 0;">Devs (Sarthak/Goddess) bypass the payment gateway automatically.</p>
+                </form>
+            </div>
+        </div>
+
+        <!-- OBS WIDGET PANEL -->
         <div class="panel">
             <h3>🎥 Stream Alerts & Widgets</h3>
             <p style="color: #9ca3af; margin-bottom: 15px;">Paste this Master Browser Source into OBS or Prism. It handles all on-screen graphics automatically.</p>
@@ -147,7 +211,7 @@
                 </button>
             </form>
 
-            <!-- NEW: CUSTOM WIDGET INJECTOR -->
+            <!-- CUSTOM WIDGET INJECTOR -->
             <div style="border-top: 1px solid #333; padding-top: 20px;">
                 <h4 style="margin-top: 0; margin-bottom: 10px; color: #e5e7eb;">📢 Fire Custom On-Screen Alert</h4>
                 <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Instantly beam an announcement or shoutout to your live stream.</p>

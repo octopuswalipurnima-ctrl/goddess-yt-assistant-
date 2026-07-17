@@ -192,6 +192,46 @@ async def custom_alert(
             await overlay_manager.send_alert(streamer.server_sync_code, custom_payload)
     return RedirectResponse(url="/", status_code=303)
 
+@app.post("/select-theme")
+async def select_theme(request: Request, theme_name: str = Form(...), db: Session = Depends(get_db)):
+    """Handles selection of free inbuilt themes."""
+    # In a full production app, you would save this to the Streamer database model.
+    # For now, we store it in the session so it updates immediately.
+    request.session["active_theme"] = theme_name
+    return RedirectResponse(url="/?theme_updated=true", status_code=303)
+
+@app.post("/upload-custom-widget")
+async def upload_custom_widget(
+    request: Request, 
+    custom_css: str = Form(...), 
+    db: Session = Depends(get_db)
+):
+    """Gatekeeper route: Charges ₹20 unless the user is a Dev (Sarthak or Goddess)."""
+    streamer_id = request.session.get("streamer_id")
+    if not streamer_id:
+        return RedirectResponse(url="/", status_code=303)
+        
+    streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+    if not streamer:
+        return RedirectResponse(url="/", status_code=303)
+
+    # THE DEV BYPASS LOGIC
+    channel_name = streamer.channel_name.lower()
+    is_dev = "sarthak" in channel_name or "goddess" in channel_name
+
+    if is_dev:
+        print(f"[SYSTEM] Dev bypass authorized for {streamer.channel_name}. Uploading widget for free.")
+        # Save the custom CSS (Mocked in session for this example)
+        request.session["custom_css"] = custom_css
+        request.session["active_theme"] = "custom"
+        return RedirectResponse(url="/?custom_success=dev_bypass", status_code=303)
+    else:
+        print(f"[SYSTEM] Standard user {streamer.channel_name} attempted custom upload. Redirecting to payment gateway.")
+        # Normal users must pay. 
+        # In production, redirect this to Razorpay or Stripe checkout link for ₹20
+        # Example: return RedirectResponse(url="https://razorpay.me/@goddess_ai_widgets", status_code=303)
+        return RedirectResponse(url="/?error=payment_required_20_inr", status_code=303)
+
 
 # ---------------------------------------------------------
 # MOUNT ADDITIONAL ROUTERS
