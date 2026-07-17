@@ -41,6 +41,18 @@ class Streamer(Base):
     mod_action_logs = relationship("ModActionLog", back_populates="streamer")
     analytics_metrics = relationship("StreamAnalyticsMetric", back_populates="streamer")
 
+    # --- CREATOR ECONOMY & STORE EXPANSIONS (NEW) ---
+    economy_config = relationship("EconomyConfig", back_populates="streamer", uselist=False)
+    reward_items = relationship("RewardItem", back_populates="streamer")
+    store_redemptions = relationship("StoreRedemption", back_populates="streamer")
+    
+    # --- STREAM MEMORY & CLIPPER (NEW) ---
+    viewer_profiles = relationship("ViewerProfile", back_populates="streamer")
+    clip_records = relationship("ClipRecord", back_populates="streamer")
+    
+    # --- PRO SUBSCRIPTION (NEW) ---
+    pro_subscription = relationship("ProSubscription", back_populates="streamer", uselist=False)
+
 
 # --- The Viewer Table (Global Identity) ---
 class User(Base):
@@ -60,6 +72,10 @@ class User(Base):
     
     # --- AI MODERATION EXTENSIONS ---
     viewer_trusts = relationship("ViewerTrust", back_populates="user")
+
+    # --- STORE & MEMORY EXPANSIONS (NEW) ---
+    store_redemptions = relationship("StoreRedemption", back_populates="user")
+    viewer_profiles = relationship("ViewerProfile", back_populates="user")
 
 
 # --- Channel-Specific Stats (Multi-Tenant) ---
@@ -153,7 +169,7 @@ class GoalWidget(Base):
     streamer = relationship("Streamer", back_populates="goal_widgets")
 
 
-# --- NEW: AI Moderation System Extensions ---
+# --- AI Moderation System Extensions ---
 
 class ViewerTrust(Base):
     """Tracks ongoing trust scores to determine if a user bypasses Gemini AI moderation."""
@@ -213,3 +229,113 @@ class StreamAnalyticsMetric(Base):
     is_highlight = Column(Boolean, default=False)
     
     streamer = relationship("Streamer", back_populates="analytics_metrics")
+
+# --- SYSTEM 1: CREATOR ECONOMY SETTINGS ---
+class EconomyConfig(Base):
+    """Allows streamers to customize their currency and leveling aesthetics."""
+    __tablename__ = "economy_configs"
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"), unique=True)
+    
+    currency_name = Column(String, default="Coins")
+    currency_icon = Column(String, default="🪙")
+    xp_name = Column(String, default="XP")
+    xp_color = Column(String, default="#a855f7")
+    
+    xp_gain_rate = Column(Float, default=1.0)
+    coin_gain_rate = Column(Float, default=1.0)
+    daily_bonus = Column(Integer, default=100)
+    
+    streamer = relationship("Streamer", back_populates="economy_config")
+
+# --- SYSTEM 2: REDEMPTION STORE ---
+class RewardItem(Base):
+    """Items available in the creator's redemption store."""
+    __tablename__ = "reward_items"
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    
+    name = Column(String, index=True)
+    category = Column(String, default="Digital") # Digital, Gaming, Physical, etc.
+    description = Column(String, nullable=True)
+    image_url = Column(String, nullable=True)
+    
+    cost = Column(Integer, default=0)
+    xp_requirement = Column(Integer, default=0)
+    level_requirement = Column(Integer, default=1)
+    
+    stock = Column(Integer, default=-1) # -1 for unlimited
+    daily_limit = Column(Integer, default=-1)
+    
+    is_active = Column(Boolean, default=True)
+    requires_approval = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    streamer = relationship("Streamer", back_populates="reward_items")
+    redemptions = relationship("StoreRedemption", back_populates="reward")
+
+class StoreRedemption(Base):
+    """Tracks viewer purchases and fulfillment status."""
+    __tablename__ = "store_redemptions"
+    id = Column(Integer, primary_key=True, index=True)
+    reward_id = Column(Integer, ForeignKey("reward_items.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    
+    status = Column(String, default="Pending") # Pending, Approved, Rejected, Refunded
+    purchased_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    reward = relationship("RewardItem", back_populates="redemptions")
+    user = relationship("User", back_populates="store_redemptions")
+    streamer = relationship("Streamer", back_populates="store_redemptions")
+
+# --- SYSTEM 3: STREAM MEMORY & VIEWER PROFILES ---
+class ViewerProfile(Base):
+    """Deep long-term tracking for community members."""
+    __tablename__ = "viewer_profiles"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    
+    total_watch_time_minutes = Column(Integer, default=0)
+    streams_attended = Column(Integer, default=1)
+    current_streak = Column(Integer, default=1)
+    highest_streak = Column(Integer, default=1)
+    
+    achievements_json = Column(JSON, default=[]) # E.g. ["First Message", "OG Viewer"]
+    notes = Column(String, nullable=True) # Custom creator tags/notes
+    last_attended = Column(DateTime(timezone=True), server_default=func.now())
+    
+    user = relationship("User", back_populates="viewer_profiles")
+    streamer = relationship("Streamer", back_populates="viewer_profiles")
+
+# --- SYSTEM 4: LOCAL STREAM CLIPPER ---
+class ClipRecord(Base):
+    """Metadata for locally generated, non-AI stream clips."""
+    __tablename__ = "clip_records"
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    
+    title = Column(String, default="Stream Clip")
+    file_path = Column(String) # Local or Cloud URI
+    duration_seconds = Column(Integer)
+    resolution = Column(String) # e.g., "1080p", "720p"
+    
+    is_favorite = Column(Boolean, default=False)
+    trigger_source = Column(String) # "Hotkey", "Dashboard", "Command"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    streamer = relationship("Streamer", back_populates="clip_records")
+
+# --- SUBSCRIPTION EXPANSION ---
+class ProSubscription(Base):
+    """Tracks the ₹50/month PRO plan without affecting the existing ₹20 premium widget purchase."""
+    __tablename__ = "pro_subscriptions"
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"), unique=True)
+    
+    is_active = Column(Boolean, default=False)
+    expires_at = Column(DateTime(timezone=True))
+    auto_renew = Column(Boolean, default=False)
+    
+    streamer = relationship("Streamer", back_populates="pro_subscription")

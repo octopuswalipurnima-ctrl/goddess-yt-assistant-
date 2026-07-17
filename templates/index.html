@@ -131,7 +131,7 @@
             <p style="color: #9ca3af; margin-top: 5px;">Your dashboard is active and synced.</p>
         </div>
 
-        <!-- NEW: INTELLIGENT AI MODERATION CENTER -->
+        <!-- INTELLIGENT AI MODERATION CENTER -->
         <div class="panel" style="border-left: 4px solid #10b981;">
             <h3 style="color: #10b981;">🤖 Intelligent AI Moderation Center</h3>
             <p style="color: #9ca3af; font-size: 0.9em;">
@@ -167,6 +167,72 @@
                     <span>🟡 Neutral: 20%</span>
                     <span>🔴 Toxic: 10%</span>
                 </div>
+            </div>
+        </div>
+
+        <!-- NEW: SYSTEM 1 & 2: CREATOR ECONOMY & STORE -->
+        <div class="panel" style="border-top: 4px solid #f59e0b;">
+            <h3 style="color: #f59e0b;">🛍️ Creator Economy & Store</h3>
+            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                <!-- Store Config -->
+                <div style="flex: 1; background: #2a2a32; padding: 15px; border-radius: 8px;">
+                    <h4 style="margin-top: 0; color: white;">Manage Store Items</h4>
+                    <p style="font-size: 0.8em; color: #9ca3af;">Add digital, physical, or gaming rewards.</p>
+                    <button class="btn-submit" style="background: #3b82f6;">+ Create Reward</button>
+                </div>
+                <!-- Currency Config -->
+                <div style="flex: 1; background: #2a2a32; padding: 15px; border-radius: 8px;">
+                    <h4 style="margin-top: 0; color: white;">Economy Settings</h4>
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <input type="text" placeholder="Currency Name (e.g., Shinobi Coins)" style="padding: 8px; border-radius: 6px; border: 1px solid #444; background: #111; color: white;">
+                        <input type="number" placeholder="XP Multiplier" style="padding: 8px; border-radius: 6px; border: 1px solid #444; background: #111; color: white;">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- NEW: SYSTEM 3: STREAM MEMORY -->
+        <div class="panel" style="border-top: 4px solid #10b981;">
+            <h3 style="color: #10b981;">🧠 Stream Memory & Profiles</h3>
+            <p style="color: #9ca3af; margin-bottom: 15px;">Search long-term viewer profiles, streaks, and achievements.</p>
+            <input type="text" placeholder="Search viewer username..." style="width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #111; color: white; margin-bottom: 10px;">
+            
+            <!-- Example Viewer Card -->
+            <div style="background: #18181b; padding: 15px; border-radius: 8px; border: 1px solid #27272a; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong style="color: white; font-size: 1.1em;">RahulGamer99</strong>
+                    <div style="font-size: 0.8em; color: #71717a; margin-top: 5px;">
+                        🔥 17 Day Streak | 🪙 12,340 Coins | Level 42
+                    </div>
+                    <div style="font-size: 0.8em; color: #a855f7; margin-top: 5px;">
+                        🏆 OG Viewer, First Message, Night Owl
+                    </div>
+                </div>
+                <button style="background: #4b5563; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;">View Full Profile</button>
+            </div>
+        </div>
+
+        <!-- NEW: SYSTEM 4 & SUBSCRIPTION: LOCAL CLIPPER & PRO PLAN -->
+        <div class="panel" style="border-top: 4px solid #3b82f6;">
+            <h3 style="color: #3b82f6;">🎬 Local Stream Clipper & Subscriptions</h3>
+            <p style="color: #9ca3af; margin-bottom: 15px;">Generate offline clips instantly. Unlock higher bitrates with PRO.</p>
+            
+            <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+                <button class="btn-submit" style="background: #ef4444;">🔴 Generate 60s Clip Now</button>
+                <button class="btn-submit" style="background: #22c55e;">⚙️ Configure OBS Hotkey</button>
+            </div>
+
+            <!-- PRO Upgrade Banner (Does not affect the existing ₹20 CSS bypass) -->
+            <div style="background: linear-gradient(45deg, #1e1e24, #2d203a); border: 1px solid #a855f7; padding: 20px; border-radius: 8px;">
+                <h4 style="margin: 0 0 10px 0; color: #eab308;">⭐ Upgrade to PRO (₹50/month)</h4>
+                <ul style="color: #d1d5db; font-size: 0.9em; padding-left: 20px;">
+                    <li>Highest Available Clip Quality (Unlimited Local Storage Integration)</li>
+                    <li>Unlimited Store Items & Infinite Custom Achievements</li>
+                    <li>Priority Background Worker Processing</li>
+                </ul>
+                <button style="background: #eab308; color: #000; padding: 10px 20px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 10px;">
+                    Subscribe via Razorpay
+                </button>
             </div>
         </div>
 

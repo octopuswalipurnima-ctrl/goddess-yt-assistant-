@@ -23,6 +23,9 @@ from app.bot.discord_bot import start_discord_bot
 from app.services.scheduler import start_scheduler
 from app.services.websocket import overlay_manager
 
+# --- NEW EXTENSIONS ROUTER IMPORT ---
+from app.api.creator_economy import router as economy_router
+
 app = FastAPI(title="Goddess Stream Manager")
 
 # ---------------------------------------------------------
@@ -361,6 +364,9 @@ async def process_chat_message(
 # ---------------------------------------------------------
 app.include_router(dashboard_router)
 app.include_router(auth_router)
+
+# --- MOUNT CREATOR ECONOMY PIPELINES ---
+app.include_router(economy_router)
 
 
 # ---------------------------------------------------------
