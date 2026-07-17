@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, JSON
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, JSON, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database.connection import Base
@@ -36,6 +36,11 @@ class Streamer(Base):
     alert_templates = relationship("AlertTemplate", back_populates="streamer")
     goal_widgets = relationship("GoalWidget", back_populates="streamer")
 
+    # --- AI MODERATION EXTENSIONS ---
+    viewer_trusts = relationship("ViewerTrust", back_populates="streamer")
+    mod_action_logs = relationship("ModActionLog", back_populates="streamer")
+    analytics_metrics = relationship("StreamAnalyticsMetric", back_populates="streamer")
+
 
 # --- The Viewer Table (Global Identity) ---
 class User(Base):
@@ -52,6 +57,9 @@ class User(Base):
     coins = relationship("Coin", back_populates="user")
     chat_logs = relationship("ChatLog", back_populates="user")
     discord_links = relationship("DiscordLink", back_populates="user")
+    
+    # --- AI MODERATION EXTENSIONS ---
+    viewer_trusts = relationship("ViewerTrust", back_populates="user")
 
 
 # --- Channel-Specific Stats (Multi-Tenant) ---
@@ -111,7 +119,7 @@ class DiscordLink(Base):
     user = relationship("User", back_populates="discord_links")
 
 
-# --- NEW: Visual Engine & Widget Data ---
+# --- Visual Engine & Widget Data ---
 class AlertTemplate(Base):
     """Stores the custom layout built in the Visual Editor"""
     __tablename__ = "alert_templates"
@@ -143,3 +151,65 @@ class GoalWidget(Base):
     theme_json = Column(JSON, default={})
 
     streamer = relationship("Streamer", back_populates="goal_widgets")
+
+
+# --- NEW: AI Moderation System Extensions ---
+
+class ViewerTrust(Base):
+    """Tracks ongoing trust scores to determine if a user bypasses Gemini AI moderation."""
+    __tablename__ = "viewer_trust"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    
+    trust_score = Column(Float, default=50.0) # Scale 0.0 to 100.0
+    total_messages_approved = Column(Integer, default=0)
+    total_offenses = Column(Integer, default=0)
+    is_whitelisted = Column(Boolean, default=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+    
+    user = relationship("User", back_populates="viewer_trusts")
+    streamer = relationship("Streamer", back_populates="viewer_trusts")
+
+class ModActionLog(Base):
+    """Logs decisions made by both the Local Rule Engine and Gemini Engine."""
+    __tablename__ = "mod_action_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    username = Column(String, index=True)
+    message_content = Column(String)
+    
+    layer_triggered = Column(String) # E.g., 'Layer 1 (Local)' or 'Layer 2 (Gemini AI)'
+    classification = Column(String)
+    recommended_action = Column(String) # Safe, Warn, Delete, Timeout, Ban
+    applied_action = Column(String, default="Pending")
+    reason = Column(String)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+    streamer = relationship("Streamer", back_populates="mod_action_logs")
+
+class DecisionCache(Base):
+    """Stores a cache of Gemini API decisions to eliminate duplicate remote calls for identical text."""
+    __tablename__ = "decision_caches"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    message_hash = Column(String(64), unique=True, index=True)
+    message_text = Column(String, index=True)
+    classification_json = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class StreamAnalyticsMetric(Base):
+    """Batched historical snapshot of chat mood and highlights tracked per minute."""
+    __tablename__ = "stream_analytics_metrics"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    
+    mood_score = Column(JSON) # Format: {"positive": 60, "neutral": 30, "toxic": 10}
+    spam_ratio = Column(Float, default=0.0)
+    is_highlight = Column(Boolean, default=False)
+    
+    streamer = relationship("Streamer", back_populates="analytics_metrics")

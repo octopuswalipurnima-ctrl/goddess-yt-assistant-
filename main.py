@@ -187,7 +187,7 @@ async def custom_alert(
         if streamer and streamer.server_sync_code:
             custom_payload = {
                 "type": "alert",
-                "event_type": "newSponsorEvent", # Reuses the green glow styling from memberships
+                "event_type": "newSponsorEvent",
                 "author": alert_title,
                 "message": alert_message,
                 "amount": "📢 ANNOUNCEMENT"
@@ -230,7 +230,7 @@ async def upload_custom_widget(
         return RedirectResponse(url="/?error=payment_required_20_inr", status_code=303)
 
 # ---------------------------------------------------------
-# NEW VISUAL ENGINE AND GOAL ROUTES
+# VISUAL ENGINE AND GOAL ROUTES
 # ---------------------------------------------------------
 @app.post("/api/save-alert-layout")
 async def save_alert_layout(request: Request, layout_config: str = Form(...), db: Session = Depends(get_db)):
@@ -289,6 +289,72 @@ async def update_goal(request: Request, goal_id: int = Form(...), amount: int = 
                 "target": goal.target_amount
             })
     return {"status": "success"}
+
+# ---------------------------------------------------------
+# NEW: AI MODERATION ENDPOINTS
+# ---------------------------------------------------------
+@app.post("/api/moderation/process-message")
+async def process_chat_message(
+    request: Request, 
+    user_id: int = Form(...),
+    message_text: str = Form(...), 
+    db: Session = Depends(get_db)
+):
+    """
+    Highly optimized multi-layered moderation pipeline framework.
+    Evaluates local rules, cross-references trust vectors, and consults Gemini when required.
+    """
+    streamer_id = request.session.get("streamer_id")
+    if not streamer_id:
+        return {"verdict": "Ignored", "action": "None", "reason": "No active session authentication."}
+
+    # Gather context tracking history from recent active database chat configurations
+    from app.database.models import ChatLog, ViewerTrust, ModActionLog
+    from app.services.moderation.rule_engine import LocalRuleEngine
+    from app.services.moderation.gemini_client import GeminiModeratorEngine
+    
+    recent_logs = db.query(ChatLog).filter(ChatLog.streamer_id == streamer_id).order_by(ChatLog.timestamp.desc()).limit(10).all()
+    context_list = [log.message for log in reversed(recent_logs)]
+
+    # Layer 0: Trust Vectors Bypass Logic
+    trust = db.query(ViewerTrust).filter(ViewerTrust.user_id == user_id, ViewerTrust.streamer_id == streamer_id).first()
+    if trust and (trust.is_whitelisted or trust.trust_score > 85.0):
+        return {"verdict": "Safe", "action": "None", "reason": "High user trust score bypass applied."}
+
+    # Layer 1: Run Local Rule Engine Engine
+    local_engine = LocalRuleEngine()
+    local_eval = local_engine.evaluate(message_text)
+    
+    if local_eval["verdict"] != "Questionable":
+        # Log action locally and terminate early to save API cost
+        log_entry = ModActionLog(
+            streamer_id=streamer_id, message_content=message_text,
+            layer_triggered="Layer 1 (Local)", classification=local_eval["verdict"],
+            recommended_action=local_eval["verdict"], reason=local_eval["reason"]
+        )
+        db.add(log_entry)
+        db.commit()
+        return {"verdict": local_eval["verdict"], "action": local_eval["verdict"], "reason": local_eval["reason"]}
+
+    # Layer 2: Run Gemini Contextual Intelligence Module
+    ai_engine = GeminiModeratorEngine(db)
+    ai_verdict = await ai_engine.analyze_message(message_text, context_list)
+
+    # Commit action logging vectors
+    log_entry = ModActionLog(
+        streamer_id=streamer_id, message_content=message_text,
+        layer_triggered="Layer 2 (Gemini AI)", classification=ai_verdict.get("classification"),
+        recommended_action=ai_verdict.get("recommended_action"), reason=ai_verdict.get("reason")
+    )
+    db.add(log_entry)
+    db.commit()
+
+    return {
+        "verdict": ai_verdict.get("recommended_action"),
+        "action": ai_verdict.get("recommended_action"),
+        "reason": ai_verdict.get("reason"),
+        "confidence": ai_verdict.get("confidence")
+    }
 
 # ---------------------------------------------------------
 # MOUNT ADDITIONAL ROUTERS
