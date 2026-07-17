@@ -5,9 +5,8 @@
     <title>Goddess AI | OBS Overlay</title>
     <style>
         /* 
-          OBS SPECIFIC SETTINGS 
-          The background MUST be transparent so the stream shows behind it.
-          Overflow is hidden to prevent ugly scrollbars in OBS.
+          BASE OBS SETTINGS - DO NOT REMOVE 
+          Keeps the container transparent and centered 
         */
         body {
             margin: 0;
@@ -18,82 +17,115 @@
             justify-content: center;
             align-items: flex-start;
             height: 100vh;
-            padding-top: 50px; /* Distance from the top of the stream */
+            padding-top: 50px;
         }
-
         .alert-container {
             display: flex;
             flex-direction: column;
             align-items: center;
-            opacity: 0; /* Hidden by default */
+            opacity: 0; 
         }
 
-        .alert-box {
-            background: linear-gradient(135deg, #1e1e24, #2a2a32);
-            border: 3px solid #a855f7;
-            border-radius: 16px;
-            padding: 20px 40px;
-            color: white;
-            text-align: center;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 20px rgba(168, 85, 247, 0.4);
-            min-width: 350px;
-            max-width: 600px;
+        /* ---------------------------------------------------
+           DYNAMIC THEME ENGINE
+           --------------------------------------------------- */
+        
+        {% if active_theme == 'custom' %}
+            /* 💎 PRO: INJECT CUSTOM USER CSS */
+            {{ custom_css | safe }}
+
+
+        {% elif active_theme == 'cyberpunk' %}
+            /* 🟡 CYBERPUNK THEME */
+            .alert-box {
+                background: #09090b;
+                border: 4px solid #eab308;
+                padding: 20px 40px;
+                color: #fff;
+                text-align: center;
+                box-shadow: 8px 8px 0px #eab308; /* Hard shadow */
+                min-width: 350px;
+                text-transform: uppercase;
+                animation: glitchIn 0.3s forwards;
+            }
+            .alert-author { font-size: 28px; font-weight: 900; color: #eab308; letter-spacing: 2px; }
+            .alert-amount { font-size: 26px; font-weight: bold; background: #eab308; color: #000; padding: 2px 10px; display: inline-block; margin-top: 5px; }
+            .alert-message { font-size: 20px; margin-top: 10px; border-top: 2px dashed #333; padding-top: 10px; font-family: monospace; }
             
-            /* The Entrance Animation */
-            animation: popIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-        }
+            @keyframes glitchIn {
+                0% { transform: scale(0.8) skewX(20deg); opacity: 0; }
+                100% { transform: scale(1) skewX(0deg); opacity: 1; }
+            }
+            @keyframes slideOut {
+                0% { transform: translateX(0); opacity: 1; }
+                100% { transform: translateX(100vw); opacity: 0; }
+            }
 
-        /* Specific event styling (Optional: can be expanded later) */
-        .alert-box.superChatEvent { border-color: #facc15; box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 20px rgba(250, 204, 21, 0.4); }
-        .alert-box.newSponsorEvent { border-color: #22c55e; box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 20px rgba(34, 197, 94, 0.4); }
 
-        .alert-author { 
-            font-size: 28px; 
-            font-weight: bold; 
-            margin-bottom: 5px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        .alert-amount { 
-            color: #4ade80; 
-            font-size: 26px; 
-            font-weight: 900; 
-            margin-bottom: 5px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
-        }
-        
-        .alert-message { 
-            font-size: 20px; 
-            margin-top: 10px; 
-            font-style: italic; 
-            color: #e5e7eb;
-            line-height: 1.4;
-        }
-        
-        /* Animation Keyframes */
-        @keyframes popIn {
-            0% { transform: scale(0.5) translateY(-50px); opacity: 0; }
-            70% { transform: scale(1.05) translateY(0); opacity: 1; }
-            100% { transform: scale(1) translateY(0); opacity: 1; }
-        }
-        
-        @keyframes slideOut {
-            0% { transform: scale(1) translateY(0); opacity: 1; }
-            100% { transform: scale(0.8) translateY(-100px); opacity: 0; }
-        }
+        {% elif active_theme == 'minimal' %}
+            /* ⚪ MINIMAL THEME */
+            .alert-box {
+                background: rgba(255, 255, 255, 0.95);
+                border-radius: 8px;
+                padding: 15px 35px;
+                color: #111;
+                text-align: center;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+                min-width: 300px;
+                animation: fadeIn 0.8s ease-out forwards;
+            }
+            .alert-author { font-size: 24px; font-weight: 600; }
+            .alert-amount { color: #16a34a; font-size: 22px; font-weight: bold; }
+            .alert-message { font-size: 18px; margin-top: 8px; font-weight: 300; }
+            
+            @keyframes fadeIn {
+                0% { opacity: 0; transform: translateY(-20px); }
+                100% { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes slideOut {
+                0% { opacity: 1; transform: translateY(0); }
+                100% { opacity: 0; transform: translateY(-20px); }
+            }
+
+
+        {% else %}
+            /* 🟣 DEFAULT NEON THEME */
+            .alert-box {
+                background: linear-gradient(135deg, #1e1e24, #2a2a32);
+                border: 3px solid #a855f7;
+                border-radius: 16px;
+                padding: 20px 40px;
+                color: white;
+                text-align: center;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 20px rgba(168, 85, 247, 0.4);
+                min-width: 350px;
+                max-width: 600px;
+                animation: popIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            }
+            .alert-box.superChatEvent { border-color: #facc15; box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 20px rgba(250, 204, 21, 0.4); }
+            .alert-box.newSponsorEvent { border-color: #22c55e; box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 20px rgba(34, 197, 94, 0.4); }
+
+            .alert-author { font-size: 28px; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+            .alert-amount { color: #4ade80; font-size: 26px; font-weight: 900; margin-bottom: 5px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+            .alert-message { font-size: 20px; margin-top: 10px; font-style: italic; color: #e5e7eb; line-height: 1.4; }
+            
+            @keyframes popIn {
+                0% { transform: scale(0.5) translateY(-50px); opacity: 0; }
+                70% { transform: scale(1.05) translateY(0); opacity: 1; }
+                100% { transform: scale(1) translateY(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+                0% { transform: scale(1) translateY(0); opacity: 1; }
+                100% { transform: scale(0.8) translateY(-100px); opacity: 0; }
+            }
+        {% endif %}
     </style>
 </head>
 <body>
 
-    <!-- This is the empty canvas where alerts will be injected by JavaScript -->
     <div id="alert-wrapper" class="alert-container"></div>
 
     <script>
-        // ---------------------------------------------------------
-        // WEBSOCKET CONNECTION
-        // ---------------------------------------------------------
-        // Dynamically figure out if the server is running on ws:// (local) or wss:// (Railway)
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/overlay/{{ sync_code }}`;
         
@@ -103,34 +135,16 @@
 
         function connectWebSocket() {
             ws = new WebSocket(wsUrl);
-            
-            ws.onopen = () => {
-                console.log("🟢 OBS Widget Connected to Goddess AI Backend");
-            };
-            
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                
-                // If the backend sends an alert, push it to the queue
                 if (data.type === "alert") {
                     alertQueue.push(data);
-                    
-                    // If the queue isn't currently playing something, start it up!
-                    if (!isPlaying) {
-                        playNextAlert();
-                    }
+                    if (!isPlaying) playNextAlert();
                 }
             };
-
-            ws.onclose = () => {
-                console.log("🔴 OBS Widget Disconnected. Reconnecting in 5 seconds...");
-                setTimeout(connectWebSocket, 5000); // Auto-reconnect makes the OBS widget bulletproof
-            };
+            ws.onclose = () => setTimeout(connectWebSocket, 5000);
         }
 
-        // ---------------------------------------------------------
-        // ALERT QUEUE ENGINE
-        // ---------------------------------------------------------
         function playNextAlert() {
             if (alertQueue.length === 0) {
                 isPlaying = false;
@@ -138,52 +152,30 @@
             }
             
             isPlaying = true;
-            
-            // Pull the first alert out of the queue
             const alertData = alertQueue.shift();
             const wrapper = document.getElementById("alert-wrapper");
             
-            // Build the HTML for the alert box
             let html = `<div class="alert-box ${alertData.event_type}" id="current-alert">`;
-            
             html += `<div class="alert-author">${alertData.author}</div>`;
-            
-            // Only show the amount if it exists (e.g. Super Chats, not Memberships)
             if (alertData.amount && alertData.amount !== "") {
                 html += `<div class="alert-amount">${alertData.amount}</div>`;
             }
+            html += `<div class="alert-message">${alertData.message}</div></div>`;
             
-            html += `<div class="alert-message">${alertData.message}</div>`;
-            html += `</div>`;
-            
-            // Inject the HTML and make it visible (triggers the popIn CSS animation)
             wrapper.innerHTML = html;
             wrapper.style.opacity = 1;
 
-            // Optional: Play a sound effect here! 
-            // const audio = new Audio('/static/sounds/notification.mp3'); 
-            // audio.play();
-
-            // Wait 6 seconds, then animate the widget out
             setTimeout(() => {
                 const box = document.getElementById("current-alert");
-                if (box) {
-                    box.style.animation = "slideOut 0.5s forwards";
-                }
-                
-                // Wait for the slideOut animation to finish (0.5s), then clean up and check queue
+                if (box) box.style.animation = "slideOut 0.5s forwards";
                 setTimeout(() => {
                     wrapper.style.opacity = 0;
                     wrapper.innerHTML = "";
-                    
-                    // Wait 1 second before showing the next alert (breathing room)
                     setTimeout(playNextAlert, 1000);
                 }, 500);
-                
-            }, 6000); // 6000ms = 6 seconds on screen
+            }, 6000); 
         }
 
-        // Boot up the connection as soon as OBS loads the page
         connectWebSocket();
     </script>
 </body>

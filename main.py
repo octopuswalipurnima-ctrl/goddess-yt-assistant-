@@ -137,10 +137,12 @@ async def guest_join(request: Request, stream_url: str = Form(...)):
 @app.get("/overlay/{sync_code}")
 async def render_overlay(request: Request, sync_code: str):
     """The actual webpage that OBS loads as a Browser Source."""
+    active_theme = request.session.get("active_theme", "neon")
+    custom_css = request.session.get("custom_css", "")
     return templates.TemplateResponse(
         request=request,
         name="overlay.html", 
-        context={"request": request, "sync_code": sync_code}
+        context={"request": request, "sync_code": sync_code, "active_theme": active_theme, "custom_css": custom_css}
     )
 
 @app.websocket("/ws/overlay/{sync_code}")
