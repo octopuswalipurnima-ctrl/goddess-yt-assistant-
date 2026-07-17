@@ -15,7 +15,8 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy.orm import Session
 
 from app.database.connection import init_db, get_db
-from app.database.models import User, XP, Streamer, AlertTemplate, GoalWidget
+# Added ClipRecord to the imports
+from app.database.models import User, XP, Streamer, AlertTemplate, GoalWidget, ClipRecord
 from app.dashboard.auth import router as auth_router
 from app.dashboard.routes import router as dashboard_router
 from app.bot.youtube_chat import YouTubeChatMonitor, DETECTED_VIDEOS
@@ -75,7 +76,8 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
                 "request": request, 
                 "streamer_name": None, 
                 "viewers": [], 
-                "settings": {}
+                "settings": {},
+                "clips": []
             }
         )
         
@@ -91,6 +93,9 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
         
     viewers = db.query(User).join(XP).filter(XP.streamer_id == streamer_id).all()
     
+    # NEW: Fetch recent clips for the video gallery
+    recent_clips = db.query(ClipRecord).filter(ClipRecord.streamer_id == streamer_id).order_by(ClipRecord.id.desc()).limit(6).all()
+    
     settings = {
         "ai_cohost_enabled": streamer.ai_cohost_enabled,
         "giveaway_reminders_enabled": streamer.giveaway_reminders_enabled,
@@ -105,7 +110,8 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             "request": request,
             "streamer_name": streamer.channel_name,
             "viewers": viewers,
-            "settings": settings
+            "settings": settings,
+            "clips": recent_clips
         }
     )
 
@@ -310,6 +316,39 @@ async def process_chat_message(
     streamer_id = request.session.get("streamer_id")
     if not streamer_id:
         return {"verdict": "Ignored", "action": "None", "reason": "No active session authentication."}
+
+    # --- NEW: CHAT COMMAND INTERCEPTOR (!clip) ---
+    if message_text.strip().lower() == "!clip":
+        # 1. Log the clip request in the database
+        new_clip = ClipRecord(
+            streamer_id=streamer_id,
+            title="Viewer Chat Clip",
+            file_path="/static/clips/pending.mp4", # Will be updated by your local worker
+            duration_seconds=60,
+            resolution="1080p",
+            trigger_source="Chat Command (!clip)"
+        )
+        db.add(new_clip)
+        db.commit()
+
+        # 2. Fire an instant WebSocket command to OBS to save the Replay Buffer
+        streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+        if streamer and streamer.server_sync_code:
+            await overlay_manager.send_alert(
+                streamer.server_sync_code, 
+                {
+                    "type": "obs_save_replay_buffer", 
+                    "message": "Chat triggered a clip!",
+                    "clip_id": new_clip.id
+                }
+            )
+
+        # 3. Halt moderation and return success immediately 
+        return {
+            "verdict": "Safe", 
+            "action": "Command Executed", 
+            "reason": "Stream clip triggered successfully via chat."
+        }
 
     # Gather context tracking history from recent active database chat configurations
     from app.database.models import ChatLog, ViewerTrust, ModActionLog

@@ -170,7 +170,7 @@
             </div>
         </div>
 
-        <!-- NEW: SYSTEM 1 & 2: CREATOR ECONOMY & STORE -->
+        <!-- CREATOR ECONOMY & STORE -->
         <div class="panel" style="border-top: 4px solid #f59e0b;">
             <h3 style="color: #f59e0b;">🛍️ Creator Economy & Store</h3>
             <div style="display: flex; gap: 20px; flex-wrap: wrap;">
@@ -191,7 +191,7 @@
             </div>
         </div>
 
-        <!-- NEW: SYSTEM 3: STREAM MEMORY -->
+        <!-- STREAM MEMORY -->
         <div class="panel" style="border-top: 4px solid #10b981;">
             <h3 style="color: #10b981;">🧠 Stream Memory & Profiles</h3>
             <p style="color: #9ca3af; margin-bottom: 15px;">Search long-term viewer profiles, streaks, and achievements.</p>
@@ -212,7 +212,7 @@
             </div>
         </div>
 
-        <!-- NEW: SYSTEM 4 & SUBSCRIPTION: LOCAL CLIPPER & PRO PLAN -->
+        <!-- LOCAL CLIPPER & PRO PLAN (UPDATED WITH VIDEO GALLERY) -->
         <div class="panel" style="border-top: 4px solid #3b82f6;">
             <h3 style="color: #3b82f6;">🎬 Local Stream Clipper & Subscriptions</h3>
             <p style="color: #9ca3af; margin-bottom: 15px;">Generate offline clips instantly. Unlock higher bitrates with PRO.</p>
@@ -222,7 +222,35 @@
                 <button class="btn-submit" style="background: #22c55e;">⚙️ Configure OBS Hotkey</button>
             </div>
 
-            <!-- PRO Upgrade Banner (Does not affect the existing ₹20 CSS bypass) -->
+            <!-- RECENT CLIPS VIDEO GALLERY -->
+            <div style="margin-bottom: 25px;">
+                <h4 style="margin-top: 0; color: #e5e7eb; border-bottom: 1px solid #333; padding-bottom: 8px;">🎞️ Recent Clips</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-top: 15px;">
+                    
+                    {% if clips %}
+                        {% for clip in clips %}
+                        <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; overflow: hidden;">
+                            <video width="100%" controls style="display: block; background: #000;">
+                                <source src="{{ clip.file_path }}" type="video/mp4">
+                                Your browser does not support the video tag.
+                            </video>
+                            <div style="padding: 12px;">
+                                <strong style="color: white; font-size: 0.95em;">{{ clip.title }}</strong>
+                                <div style="font-size: 0.8em; color: #71717a; margin-top: 4px;">Triggered by: {{ clip.trigger_source }}</div>
+                                <div style="font-size: 0.75em; color: #3b82f6; margin-top: 4px;">{{ clip.duration_seconds }}s • {{ clip.resolution }}</div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <!-- Empty State Fallback -->
+                        <div style="background: #18181b; border: 1px dashed #444; border-radius: 8px; padding: 20px; text-align: center; color: #71717a; grid-column: 1 / -1;">
+                            No clips generated yet. Type <strong>!clip</strong> in chat to create one!
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- PRO Upgrade Banner -->
             <div style="background: linear-gradient(45deg, #1e1e24, #2d203a); border: 1px solid #a855f7; padding: 20px; border-radius: 8px;">
                 <h4 style="margin: 0 0 10px 0; color: #eab308;">⭐ Upgrade to PRO (₹50/month)</h4>
                 <ul style="color: #d1d5db; font-size: 0.9em; padding-left: 20px;">
@@ -371,7 +399,7 @@
             <h3>🎥 Stream Alerts & Widgets</h3>
             <p style="color: #9ca3af; margin-bottom: 15px;">Preview your alerts in real-time, then paste the Master Browser Source into OBS.</p>
             
-            <!-- NEW: LIVE PREVIEW IFRAME -->
+            <!-- LIVE PREVIEW IFRAME -->
             <div style="margin-bottom: 20px;">
                 <h4 style="margin-top: 0; margin-bottom: 10px; color: #e5e7eb;">📺 Live Preview (Click 'Test Alert' below to see it!)</h4>
                 <div style="width: 100%; height: 280px; background-color: #0a0a0c; border-radius: 8px; border: 2px dashed #555; overflow: hidden; position: relative; display: flex; justify-content: center;">
