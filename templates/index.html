@@ -193,6 +193,72 @@
                     <p style="font-size: 0.75em; color: #6b7280; text-align: center; margin: 0;">Devs (Sarthak/Goddess) bypass the payment gateway automatically.</p>
                 </form>
             </div>
+            
+            <!-- ADVANCED VISUAL BUILDER (PREMIUM) -->
+            <div style="border-top: 1px dashed #444; padding-top: 20px; margin-top: 20px;">
+                <h4 style="margin-top: 0; color: #fbbf24;">🛠️ Pro Layout Builder</h4>
+                <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Visually compose your alerts and goal bars. Drag, drop, and style without writing code.</p>
+                
+                <div style="display: flex; gap: 20px;">
+                    <!-- Left Column: Controls -->
+                    <div style="flex: 1; background: #2a2a32; padding: 15px; border-radius: 8px;">
+                        <label style="display: block; color: #fff; margin-bottom: 5px;">Entrance Animation</label>
+                        <select id="animSelect" style="width: 100%; padding: 8px; margin-bottom: 15px; background: #111; color: white; border: 1px solid #444;">
+                            <option value="popIn">Pop In (Classic)</option>
+                            <option value="elasticBounce">Elastic Bounce</option>
+                            <option value="glitch">Cyber Glitch</option>
+                            <option value="slideIn">Slide In</option>
+                        </select>
+
+                        <label style="display: block; color: #fff; margin-bottom: 5px;">Border Radius</label>
+                        <input type="range" id="borderRadius" min="0" max="50" value="16" style="width: 100%; margin-bottom: 15px;">
+
+                        <label style="display: block; color: #fff; margin-bottom: 5px;">Enable Avatar Layer</label>
+                        <input type="checkbox" id="showAvatar" checked style="margin-bottom: 15px;">
+
+                        <!-- This hidden input holds the generated JSON payload -->
+                        <form action="/api/save-alert-layout" method="POST" id="builderForm">
+                            <input type="hidden" name="layout_config" id="layoutConfigPayload">
+                            <button type="button" onclick="saveLayout()" style="background: #fbbf24; color: #000; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%;">
+                                Save Configuration
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% if request.query_params.get('success') == 'layout_saved' %}
+                 <div style="background: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; padding: 12px; border-radius: 8px; color: #4ade80; margin-top: 15px; text-align: left; font-weight: bold;">
+                      ✅ Layout successfully saved!
+                 </div>
+            {% endif %}
+            <script>
+                // Gathers inputs and sends JSON to the FastAPI backend
+                function saveLayout() {
+                    const config = {
+                        animation_in: document.getElementById('animSelect').value,
+                        border_radius: document.getElementById('borderRadius').value,
+                        show_avatar: document.getElementById('showAvatar').checked
+                    };
+                    
+                    document.getElementById('layoutConfigPayload').value = JSON.stringify(config);
+                    document.getElementById('builderForm').submit();
+                }
+
+                // Attach real-time preview listeners
+                document.getElementById('borderRadius').addEventListener('input', (e) => {
+                    // Ping the iframe preview to update instantly without saving to DB
+                    const previewFrame = document.querySelector('iframe').contentWindow;
+                    previewFrame.postMessage({ type: 'preview_config', config: { border_radius: e.target.value } }, '*');
+                });
+                document.getElementById('animSelect').addEventListener('change', (e) => {
+                    const previewFrame = document.querySelector('iframe').contentWindow;
+                    previewFrame.postMessage({ type: 'preview_config', config: { animation_in: e.target.value } }, '*');
+                });
+                document.getElementById('showAvatar').addEventListener('change', (e) => {
+                    const previewFrame = document.querySelector('iframe').contentWindow;
+                    previewFrame.postMessage({ type: 'preview_config', config: { show_avatar: e.target.checked } }, '*');
+                });
+            </script>
         </div>
 
         <!-- OBS WIDGET PANEL (NOW WITH LIVE PREVIEW) -->

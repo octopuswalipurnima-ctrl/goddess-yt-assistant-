@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database.connection import Base
@@ -31,6 +31,10 @@ class Streamer(Base):
     xps = relationship("XP", back_populates="streamer")
     coins = relationship("Coin", back_populates="streamer")
     chat_logs = relationship("ChatLog", back_populates="streamer")
+    
+    # --- VISUAL BUILDER EXTENSIONS ---
+    alert_templates = relationship("AlertTemplate", back_populates="streamer")
+    goal_widgets = relationship("GoalWidget", back_populates="streamer")
 
 
 # --- The Viewer Table (Global Identity) ---
@@ -105,3 +109,37 @@ class DiscordLink(Base):
     discord_id = Column(String, nullable=True)
 
     user = relationship("User", back_populates="discord_links")
+
+
+# --- NEW: Visual Engine & Widget Data ---
+class AlertTemplate(Base):
+    """Stores the custom layout built in the Visual Editor"""
+    __tablename__ = "alert_templates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    is_active = Column(Boolean, default=True)
+    
+    # Stores all CSS, positions, animations, and enabled layers as a single JSON object
+    # Example: {"animation_in": "bounce", "bg_color": "#000", "show_avatar": True}
+    config_json = Column(JSON, default={}) 
+
+    streamer = relationship("Streamer", back_populates="alert_templates")
+
+class GoalWidget(Base):
+    """Stores active Sub/Member/Dono goals"""
+    __tablename__ = "goal_widgets"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    is_active = Column(Boolean, default=True)
+    
+    goal_type = Column(String, default="subscriber") # subscriber, donation, etc.
+    target_amount = Column(Integer, default=100)
+    current_amount = Column(Integer, default=0)
+    title = Column(String, default="Sub Goal")
+    
+    # Stores the visual look of the progress bar
+    theme_json = Column(JSON, default={})
+
+    streamer = relationship("Streamer", back_populates="goal_widgets")

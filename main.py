@@ -3,6 +3,7 @@ import re
 import asyncio
 import random
 import string
+import json
 import uvicorn
 from fastapi import FastAPI, Request, Depends, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse
@@ -14,7 +15,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy.orm import Session
 
 from app.database.connection import init_db, get_db
-from app.database.models import User, XP, Streamer
+from app.database.models import User, XP, Streamer, AlertTemplate, GoalWidget
 from app.dashboard.auth import router as auth_router
 from app.dashboard.routes import router as dashboard_router
 from app.bot.youtube_chat import YouTubeChatMonitor, DETECTED_VIDEOS
@@ -197,8 +198,6 @@ async def custom_alert(
 @app.post("/select-theme")
 async def select_theme(request: Request, theme_name: str = Form(...), db: Session = Depends(get_db)):
     """Handles selection of free inbuilt themes."""
-    # In a full production app, you would save this to the Streamer database model.
-    # For now, we store it in the session so it updates immediately.
     request.session["active_theme"] = theme_name
     return RedirectResponse(url="/?theme_updated=true", status_code=303)
 
@@ -223,17 +222,73 @@ async def upload_custom_widget(
 
     if is_dev:
         print(f"[SYSTEM] Dev bypass authorized for {streamer.channel_name}. Uploading widget for free.")
-        # Save the custom CSS (Mocked in session for this example)
         request.session["custom_css"] = custom_css
         request.session["active_theme"] = "custom"
         return RedirectResponse(url="/?custom_success=dev_bypass", status_code=303)
     else:
         print(f"[SYSTEM] Standard user {streamer.channel_name} attempted custom upload. Redirecting to payment gateway.")
-        # Normal users must pay. 
-        # In production, redirect this to Razorpay or Stripe checkout link for ₹20
-        # Example: return RedirectResponse(url="https://razorpay.me/@goddess_ai_widgets", status_code=303)
         return RedirectResponse(url="/?error=payment_required_20_inr", status_code=303)
 
+# ---------------------------------------------------------
+# NEW VISUAL ENGINE AND GOAL ROUTES
+# ---------------------------------------------------------
+@app.post("/api/save-alert-layout")
+async def save_alert_layout(request: Request, layout_config: str = Form(...), db: Session = Depends(get_db)):
+    """Saves the output from the visual Alert Builder. Guarded by the Premium Gate."""
+    streamer_id = request.session.get("streamer_id")
+    if not streamer_id:
+        return RedirectResponse(url="/", status_code=303)
+        
+    streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+    if not streamer:
+         return RedirectResponse(url="/", status_code=303)
+    
+    # REUSE EXISTING PREMIUM LOGIC
+    channel_name = streamer.channel_name.lower()
+    is_dev = "sarthak" in channel_name or "goddess" in channel_name
+    has_paid = request.session.get("has_paid_premium", False) 
+    
+    if not (is_dev or has_paid):
+        return RedirectResponse(url="/?error=payment_required_20_inr", status_code=303)
+        
+    try:
+        parsed_config = json.loads(layout_config)
+    except json.JSONDecodeError:
+         return RedirectResponse(url="/?error=invalid_json", status_code=303)
+    
+    # Update or create template
+    template = db.query(AlertTemplate).filter(AlertTemplate.streamer_id == streamer_id).first()
+    if not template:
+        template = AlertTemplate(streamer_id=streamer_id, config_json=parsed_config)
+        db.add(template)
+    else:
+        template.config_json = parsed_config
+    
+    db.commit()
+    
+    # Instantly push the new config to OBS via WebSocket (No reload needed)
+    if streamer.server_sync_code:
+         await overlay_manager.send_alert(streamer.server_sync_code, {"type": "config_update", "config": parsed_config})
+         
+    return RedirectResponse(url="/?success=layout_saved", status_code=303)
+
+@app.post("/api/update-goal")
+async def update_goal(request: Request, goal_id: int = Form(...), amount: int = Form(...), db: Session = Depends(get_db)):
+    """Fired by the backend when a sub/dono happens to progress the goal bar."""
+    goal = db.query(GoalWidget).filter(GoalWidget.id == goal_id).first()
+    if goal:
+        goal.current_amount += amount
+        db.commit()
+        # Ping OBS to animate the progress bar filling up
+        streamer = db.query(Streamer).filter(Streamer.id == goal.streamer_id).first()
+        if streamer and streamer.server_sync_code:
+            await overlay_manager.send_alert(streamer.server_sync_code, {
+                "type": "goal_update",
+                "goal_id": goal.id,
+                "current": goal.current_amount,
+                "target": goal.target_amount
+            })
+    return {"status": "success"}
 
 # ---------------------------------------------------------
 # MOUNT ADDITIONAL ROUTERS
