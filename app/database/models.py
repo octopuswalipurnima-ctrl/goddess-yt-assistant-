@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database.connection import Base
 
-# --- NEW: The SaaS Streamer Table ---
+# --- The SaaS Streamer Table ---
 class Streamer(Base):
     __tablename__ = "streamers"
     
@@ -41,16 +41,16 @@ class Streamer(Base):
     mod_action_logs = relationship("ModActionLog", back_populates="streamer")
     analytics_metrics = relationship("StreamAnalyticsMetric", back_populates="streamer")
 
-    # --- CREATOR ECONOMY & STORE EXPANSIONS (NEW) ---
+    # --- CREATOR ECONOMY & STORE EXPANSIONS ---
     economy_config = relationship("EconomyConfig", back_populates="streamer", uselist=False)
     reward_items = relationship("RewardItem", back_populates="streamer")
     store_redemptions = relationship("StoreRedemption", back_populates="streamer")
     
-    # --- STREAM MEMORY & CLIPPER (NEW) ---
+    # --- STREAM MEMORY & CLIPPER ---
     viewer_profiles = relationship("ViewerProfile", back_populates="streamer")
     clip_records = relationship("ClipRecord", back_populates="streamer")
     
-    # --- PRO SUBSCRIPTION (NEW) ---
+    # --- PRO SUBSCRIPTION ---
     pro_subscription = relationship("ProSubscription", back_populates="streamer", uselist=False)
 
 
@@ -73,7 +73,7 @@ class User(Base):
     # --- AI MODERATION EXTENSIONS ---
     viewer_trusts = relationship("ViewerTrust", back_populates="user")
 
-    # --- STORE & MEMORY EXPANSIONS (NEW) ---
+    # --- STORE & MEMORY EXPANSIONS ---
     store_redemptions = relationship("StoreRedemption", back_populates="user")
     viewer_profiles = relationship("ViewerProfile", back_populates="user")
 
@@ -145,10 +145,10 @@ class AlertTemplate(Base):
     is_active = Column(Boolean, default=True)
     
     # Stores all CSS, positions, animations, and enabled layers as a single JSON object
-    # Example: {"animation_in": "bounce", "bg_color": "#000", "show_avatar": True}
     config_json = Column(JSON, default={}) 
 
     streamer = relationship("Streamer", back_populates="alert_templates")
+
 
 class GoalWidget(Base):
     """Stores active Sub/Member/Dono goals"""
@@ -188,6 +188,7 @@ class ViewerTrust(Base):
     user = relationship("User", back_populates="viewer_trusts")
     streamer = relationship("Streamer", back_populates="viewer_trusts")
 
+
 class ModActionLog(Base):
     """Logs decisions made by both the Local Rule Engine and Gemini Engine."""
     __tablename__ = "mod_action_logs"
@@ -206,6 +207,7 @@ class ModActionLog(Base):
 
     streamer = relationship("Streamer", back_populates="mod_action_logs")
 
+
 class DecisionCache(Base):
     """Stores a cache of Gemini API decisions to eliminate duplicate remote calls for identical text."""
     __tablename__ = "decision_caches"
@@ -215,6 +217,7 @@ class DecisionCache(Base):
     message_text = Column(String, index=True)
     classification_json = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class StreamAnalyticsMetric(Base):
     """Batched historical snapshot of chat mood and highlights tracked per minute."""
@@ -230,7 +233,8 @@ class StreamAnalyticsMetric(Base):
     
     streamer = relationship("Streamer", back_populates="analytics_metrics")
 
-# --- SYSTEM 1: CREATOR ECONOMY SETTINGS ---
+
+# --- CREATOR ECONOMY SETTINGS ---
 class EconomyConfig(Base):
     """Allows streamers to customize their currency and leveling aesthetics."""
     __tablename__ = "economy_configs"
@@ -248,7 +252,8 @@ class EconomyConfig(Base):
     
     streamer = relationship("Streamer", back_populates="economy_config")
 
-# --- SYSTEM 2: REDEMPTION STORE ---
+
+# --- REDEMPTION STORE ---
 class RewardItem(Base):
     """Items available in the creator's redemption store."""
     __tablename__ = "reward_items"
@@ -274,6 +279,7 @@ class RewardItem(Base):
     streamer = relationship("Streamer", back_populates="reward_items")
     redemptions = relationship("StoreRedemption", back_populates="reward")
 
+
 class StoreRedemption(Base):
     """Tracks viewer purchases and fulfillment status."""
     __tablename__ = "store_redemptions"
@@ -289,7 +295,8 @@ class StoreRedemption(Base):
     user = relationship("User", back_populates="store_redemptions")
     streamer = relationship("Streamer", back_populates="store_redemptions")
 
-# --- SYSTEM 3: STREAM MEMORY & VIEWER PROFILES ---
+
+# --- STREAM MEMORY & VIEWER PROFILES ---
 class ViewerProfile(Base):
     """Deep long-term tracking for community members."""
     __tablename__ = "viewer_profiles"
@@ -309,7 +316,8 @@ class ViewerProfile(Base):
     user = relationship("User", back_populates="viewer_profiles")
     streamer = relationship("Streamer", back_populates="viewer_profiles")
 
-# --- SYSTEM 4: LOCAL STREAM CLIPPER ---
+
+# --- LOCAL STREAM CLIPPER ---
 class ClipRecord(Base):
     """Metadata for locally generated, non-AI stream clips."""
     __tablename__ = "clip_records"
@@ -327,9 +335,10 @@ class ClipRecord(Base):
     
     streamer = relationship("Streamer", back_populates="clip_records")
 
+
 # --- SUBSCRIPTION EXPANSION ---
 class ProSubscription(Base):
-    """Tracks the ₹50/month PRO plan without affecting the existing ₹20 premium widget purchase."""
+    """Tracks the PRO plan updates."""
     __tablename__ = "pro_subscriptions"
     id = Column(Integer, primary_key=True, index=True)
     streamer_id = Column(Integer, ForeignKey("streamers.id"), unique=True)

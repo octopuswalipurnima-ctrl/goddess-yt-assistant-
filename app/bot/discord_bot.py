@@ -18,9 +18,6 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Set this to your actual Live Notification Channel ID where Sapphire posts
-LIVE_NOTIFICATION_CHANNEL_ID = 1443499513137594380  # Replace with actual ID
-
 @bot.event
 async def on_ready():
     print(f"[DISCORD BOT] Logged in as {bot.user.name} and ready to scan for links!")
@@ -31,58 +28,72 @@ async def on_ready():
         print(f"[DISCORD BOT ERROR] Syncing commands: {e}")
 
 # ---------------------------------------------------------
-# THE LINK SCANNER: Feeds the YouTube API Quota Saver
+# DYNAMIC LINK SCANNER: Captures Multi-Tenant Webhooks
 # ---------------------------------------------------------
 @bot.event
 async def on_message(message):
-    # Ignore our own bot messages
+    # Prevent self-loop triggers
     if message.author == bot.user:
         return
 
-    # --- SAPPHIRE BOT INTERCEPTOR LOGIC ---
-    # Only process bot messages if they come from your specific live notification channel
-    if message.author.bot and message.channel.id != LIVE_NOTIFICATION_CHANNEL_ID:
+    # Check database to see if this message belongs to any registered streamer's announcement setup
+    db = SessionLocal()
+    streamer_match = None
+    try:
+        streamer_match = db.query(Streamer).filter(
+            Streamer.discord_announcement_channel_id == str(message.channel.id)
+        ).first()
+    finally:
+        db.close()
+
+    # If this channel isn't a designated go-live channel for anyone, run standard link parsing or skip bots
+    if not streamer_match:
+        # Standard user links handling (if you want normal users to share regular clips/videos elsewhere)
+        if not message.author.bot:
+            yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})"
+            match = re.search(yt_regex, message.content)
+            if match:
+                DETECTED_VIDEOS.add(match.group(1))
+        await bot.process_commands(message)
         return
 
+    # 🤖 THIRD-PARTY WEBHOOK & BOT INTERCEPTOR (Sapphire, CouchBot, etc.)
+    # We explicitly allow bot authors here because we validated that the channel is verified in the DB!
     content_to_check = message.content.lower()
 
-    if message.channel.id == LIVE_NOTIFICATION_CHANNEL_ID:
-        # 1. Extract text and links hidden inside Sapphire's Embed cards
-        if message.embeds:
-            for embed in message.embeds:
-                if embed.title:
-                    content_to_check += f" {embed.title.lower()}"
-                if embed.description:
-                    content_to_check += f" {embed.description.lower()}"
-                # Sapphire often hides the clickable link in the embed.url attribute
-                if embed.url:
-                    content_to_check += f" {embed.url.lower()}"
+    # Pull text layers out of custom styled rich Embed objects sent by Sapphire
+    if message.embeds:
+        for embed in message.embeds:
+            if embed.title:
+                content_to_check += f" {embed.title.lower()}"
+            if embed.description:
+                content_to_check += f" {embed.description.lower()}"
+            if embed.url:
+                content_to_check += f" {embed.url.lower()}"
 
-    # 2. Look for YouTube links in the combined content
-    # Updated Regex to reliably catch youtube.com/live/ URLs which Sapphire often uses
+    # Target specific streaming links within the target channel
     yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})"
     match = re.search(yt_regex, content_to_check)
     
     if match:
         video_id = match.group(1)
-        print(f"[DISCORD BOT] Detected YouTube Link from {message.author.name}! Passing Video ID '{video_id}' to YouTube Engine...")
+        print(f"[PIPELINE SUCCESS] Intercepted Live Notice for {streamer_match.channel_name}! Stream ID logged: '{video_id}'")
         
-        # Send the Video ID to the shared variable in youtube_chat.py
+        # Instantly feeds the engine without quota drain or manual inputs
         DETECTED_VIDEOS.add(video_id)
         
-    # VERY IMPORTANT: Without this, slash commands like /link and /profile will break!
     await bot.process_commands(message)
 
 # ---------------------------------------------------------
 # SLASH COMMANDS
 # ---------------------------------------------------------
 
-# --- NEW: Streamer Setup Command ---
-@bot.tree.command(name="setup", description="Link your Discord server to your Goddess AI dashboard.")
+# --- THE DYNAMIC STREAMER SETUP COMMAND (ADMIN ONLY) ---
+@bot.tree.command(name="setup", description="Link your Discord server and notification channel to Goddess AI.")
 @app_commands.describe(
-    sync_code="The 6-character code from your web dashboard",
+    sync_code="The unique 6-character connection code from your Goddess AI web dashboard",
     log_channel="Where should I send moderation logs?",
-    announce_channel="Where should I send go-live announcements?"
+    announce_channel="The channel where Sapphire (or other alert bots) post your Go-Live notifications"
 )
 async def setup_dashboard(
     interaction: discord.Interaction, 
@@ -90,36 +101,40 @@ async def setup_dashboard(
     log_channel: discord.TextChannel, 
     announce_channel: discord.TextChannel
 ):
-    # Ensure they have admin permissions in the server before setting this up
+    # 🔐 FORCE HIGHEST SERVER RANK: Only administrators can map system channels
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ **Access Denied.** You must be a server administrator to run setup.", ephemeral=True)
+        await interaction.response.send_message(
+            "❌ **Access Denied.** You must hold the highest server authority (Administrator) to run this routing setup.", 
+            ephemeral=True
+        )
         return
 
     db = SessionLocal()
     try:
-        # Look up the streamer by their dashboard code
-        streamer = db.query(Streamer).filter(Streamer.server_sync_code == sync_code).first()
+        # Cross-reference the unique cross-platform token generated on the web login page
+        streamer = db.query(Streamer).filter(Streamer.server_sync_code == sync_code.upper()).first()
         
         if not streamer:
             await interaction.response.send_message(
-                "❌ **Invalid Sync Code.** Please check your Goddess AI web dashboard and try again.", 
+                "❌ **Invalid Sync Code.** Please log into your web dashboard, generate a valid token, and try again.", 
                 ephemeral=True
             )
             return
             
-        # Invisa-sync the IDs to the database!
+        # Dynamically link the network configuration to the database
         streamer.discord_guild_id = str(interaction.guild_id)
         streamer.discord_log_channel_id = str(log_channel.id)
-        streamer.discord_announcement_channel_id = str(announce_channel.id)
+        streamer.discord_announcement_channel_id = str(announce_channel.id) # Saves dynamic target path
         
         db.commit()
         
         # Confirm success privately to the streamer
         success_msg = (
-            f"✅ **Server Linked Successfully to {streamer.channel_name}!**\n\n"
-            f"**Logs Channel:** {log_channel.mention}\n"
-            f"**Announcements Channel:** {announce_channel.mention}\n\n"
-            f"Your Goddess AI dashboard will reflect these changes immediately."
+            f"👑 **Goddess AI Pipeline Established Successfully for {streamer.channel_name}!**\n\n"
+            f"**Linked Server ID:** `{interaction.guild_id}`\n"
+            f"**AI Mod Logs Channel:** {log_channel.mention}\n"
+            f"**Live Scanner Channel:** {announce_channel.mention}\n\n"
+            f"The scanner will now intercept Sapphire/third-party live alerts *specifically* for this stream structure."
         )
         await interaction.response.send_message(success_msg, ephemeral=True)
     finally:
