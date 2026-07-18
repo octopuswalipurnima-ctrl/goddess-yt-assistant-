@@ -2,9 +2,10 @@ import re
 import discord
 from discord import app_commands
 from discord.ext import commands
+from sqlalchemy import func
 from app.database.connection import SessionLocal
-# Added Streamer so the setup command can update the database
-from app.database.models import User, DiscordLink, Streamer
+# Added AutoLearnedRule and CostSavingsAnalytics for the CL Engine dashboard
+from app.database.models import User, DiscordLink, Streamer, AutoLearnedRule, CostSavingsAnalytics
 from app.utils.config import Config
 
 # ---------------------------------------------------------
@@ -182,6 +183,66 @@ async def view_profile(interaction: discord.Interaction):
         embed.add_field(name="Global XP", value=f"✨ {total_xp}", inline=True)
         embed.add_field(name="Coins", value=f"🪙 {coin_balance}", inline=True)
         
+        await interaction.response.send_message(embed=embed)
+    finally:
+        db.close()
+
+
+# --- NEW: AI CONTINUOUS LEARNING ENGINE DASHBOARD COMMAND ---
+@bot.tree.command(name="ai_stats", description="View Goddess AI Continuous Learning performance and cost savings.")
+async def ai_stats(interaction: discord.Interaction):
+    # Restrict to Server Admins to protect financial/system telemetry
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ **Access Denied.** Only Server Administrators can view system metrics.", ephemeral=True)
+        return
+
+    db = SessionLocal()
+    try:
+        # Cross-reference the database to find the Streamer ID tied to this Discord server
+        streamer = db.query(Streamer).filter(Streamer.discord_guild_id == str(interaction.guild_id)).first()
+        
+        if not streamer:
+            await interaction.response.send_message("❌ **Not Linked.** Run `/setup` to link this server to your Goddess AI dashboard first.", ephemeral=True)
+            return
+            
+        # Aggregate lifetime API savings
+        total_blocks = db.query(func.sum(CostSavingsAnalytics.layer_1_blocks)).filter(
+            CostSavingsAnalytics.streamer_id == streamer.id
+        ).scalar() or 0
+        
+        total_tokens = db.query(func.sum(CostSavingsAnalytics.estimated_tokens_saved)).filter(
+            CostSavingsAnalytics.streamer_id == streamer.id
+        ).scalar() or 0
+        
+        # Check rule matrix statuses
+        active_rules = db.query(AutoLearnedRule).filter(
+            AutoLearnedRule.streamer_id == streamer.id, 
+            AutoLearnedRule.status == 'active'
+        ).count()
+        
+        proposed_rules = db.query(AutoLearnedRule).filter(
+            AutoLearnedRule.streamer_id == streamer.id, 
+            AutoLearnedRule.status == 'proposed'
+        ).count()
+
+        # Build the visual UI Card
+        embed = discord.Embed(
+            title="🧠 Goddess AI: Continuous Learning Engine", 
+            description="Live metric overview for your multi-layer moderation pipeline.",
+            color=discord.Color.brand_green()
+        )
+        
+        embed.add_field(name="Messages Blocked (Layer 1)", value=f"🛡️ **{total_blocks}** bypassed AI", inline=True)
+        embed.add_field(name="API Tokens Saved", value=f"🪙 **{total_tokens:,}** tokens", inline=True)
+        embed.add_field(name="Active Local Rules", value=f"📜 **{active_rules}** trained rules", inline=True)
+        
+        if proposed_rules > 0:
+            embed.add_field(
+                name="⚠️ Action Required", 
+                value=f"The AI has proposed **{proposed_rules}** new rules with high confidence. Log into your Web Dashboard to review and approve them.", 
+                inline=False
+            )
+            
         await interaction.response.send_message(embed=embed)
     finally:
         db.close()
