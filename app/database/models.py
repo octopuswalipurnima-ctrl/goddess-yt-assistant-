@@ -57,6 +57,10 @@ class Streamer(Base):
     auto_learned_rules = relationship("AutoLearnedRule", back_populates="streamer")
     cost_savings = relationship("CostSavingsAnalytics", back_populates="streamer")
 
+    # --- CHAT MANAGEMENT EXTENSIONS ---
+    custom_commands = relationship("CustomCommand", back_populates="streamer")
+    vip_guests = relationship("VIPGuest", back_populates="streamer")
+
 
 # --- The Viewer Table (Global Identity) ---
 class User(Base):
@@ -394,3 +398,40 @@ class CostSavingsAnalytics(Base):
     estimated_tokens_saved = Column(Integer, default=0) # Structural count of estimated API payload size saved
     
     streamer = relationship("Streamer", back_populates="cost_savings")
+
+# =========================================================================
+# --- CHAT MANAGEMENT EXTENSIONS ---
+# =========================================================================
+
+class VIPGuest(Base):
+    """Stores custom greetings for specific users when they enter chat."""
+    __tablename__ = "vip_guests"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    
+    target_username = Column(String, index=True) # e.g., "@uk_hi_kahda"
+    custom_reply = Column(String)
+    
+    # This ensures the bot only greets them once per stream, not every single message
+    has_been_greeted = Column(Boolean, default=False) 
+    
+    streamer = relationship("Streamer", back_populates="vip_guests")
+
+
+class CustomCommand(Base):
+    """Nightbot-style custom chat commands and automated repetition loops."""
+    __tablename__ = "custom_commands"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    
+    command_trigger = Column(String, index=True) # E.g., "!discord"
+    response_text = Column(String)               # E.g., "Join our server here: discord.gg/link"
+    is_active = Column(Boolean, default=True)
+    
+    # --- TIMED LOOP EXTENSIONS ---
+    interval_minutes = Column(Integer, default=0) # 0 means disabled, > 0 means it repeats
+    last_triggered_at = Column(DateTime(timezone=True), nullable=True)
+    
+    streamer = relationship("Streamer", back_populates="custom_commands")

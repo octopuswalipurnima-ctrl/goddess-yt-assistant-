@@ -170,6 +170,96 @@
             </div>
         </div>
 
+        <!-- CUSTOM COMMANDS (NIGHTBOT STYLE) -->
+        <div class="panel" style="border-top: 4px solid #a855f7;">
+            <h3 style="color: #a855f7;">⚡ Custom Chat Commands</h3>
+            <p style="color: #9ca3af; margin-bottom: 15px;">Create text triggers that the AI bot will automatically reply to in YouTube chat.</p>
+            
+            <!-- Add Command Form -->
+            <form action="/api/commands/add" method="POST" style="display: flex; gap: 10px; margin-bottom: 20px;">
+                <input type="text" name="command_trigger" placeholder="!discord" style="flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
+                <input type="text" name="response_text" placeholder="Join our Discord here: discord.gg/..." style="flex: 3; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
+                <button type="submit" style="background: #a855f7; color: white; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
+                    + Add Command
+                </button>
+            </form>
+
+            <!-- Command List Table -->
+            <table style="width: 100%; text-align: left; border-collapse: collapse; background: #18181b; border-radius: 8px; overflow: hidden;">
+                <tr style="border-bottom: 1px solid #333; background: #27272a;">
+                    <th style="padding: 12px; color: #e5e7eb;">Trigger</th>
+                    <th style="padding: 12px; color: #e5e7eb;">Bot Response</th>
+                    <th style="padding: 12px; text-align: right; color: #e5e7eb;">Action</th>
+                </tr>
+                
+                {% if commands %}
+                    {% for cmd in commands %}
+                    <tr style="border-bottom: 1px solid #27272a;">
+                        <td style="padding: 12px; color: #a855f7; font-weight: bold; font-family: monospace;">{{ cmd.command_trigger }}</td>
+                        <td style="padding: 12px; color: #d1d5db;">{{ cmd.response_text }}</td>
+                        <td style="padding: 12px; text-align: right;">
+                            <form action="/api/commands/delete" method="POST" style="display:inline;">
+                                <input type="hidden" name="command_id" value="{{ cmd.id }}">
+                                <button type="submit" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="3" style="padding: 20px; text-align: center; color: #71717a; font-style: italic;">
+                            No custom commands created yet.
+                        </td>
+                    </tr>
+                {% endif %}
+            </table>
+        </div>
+
+        <!-- VIP ENTRANCE GREETER -->
+        <div class="panel" style="border-top: 4px solid #f43f5e;">
+            <h3 style="color: #f43f5e;">🌟 VIP Entrance Greeter</h3>
+            <p style="color: #9ca3af; margin-bottom: 15px;">Set custom automated bot replies for when specific users send their first message in your chat.</p>
+            
+            <!-- Add VIP Form -->
+            <form action="/api/vip/add" method="POST" style="display: flex; gap: 10px; margin-bottom: 20px;">
+                <input type="text" name="target_username" placeholder="@YouTubeHandle" style="flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
+                <input type="text" name="custom_reply" placeholder="Welcome back to the stream, VIP!" style="flex: 3; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
+                <button type="submit" style="background: #f43f5e; color: white; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
+                    + Add VIP
+                </button>
+            </form>
+
+            <!-- VIP List Table -->
+            <table style="width: 100%; text-align: left; border-collapse: collapse; background: #18181b; border-radius: 8px; overflow: hidden;">
+                <tr style="border-bottom: 1px solid #333; background: #27272a;">
+                    <th style="padding: 12px; color: #e5e7eb;">Target User</th>
+                    <th style="padding: 12px; color: #e5e7eb;">Automated Reply</th>
+                    <th style="padding: 12px; text-align: right; color: #e5e7eb;">Action</th>
+                </tr>
+                
+                {% if vips %}
+                    {% for vip in vips %}
+                    <tr style="border-bottom: 1px solid #27272a;">
+                        <td style="padding: 12px; color: #f43f5e; font-weight: bold; font-family: monospace;">{{ vip.target_username }}</td>
+                        <td style="padding: 12px; color: #d1d5db;">{{ vip.custom_reply }}</td>
+                        <td style="padding: 12px; text-align: right;">
+                            <form action="/api/vip/delete" method="POST" style="display:inline;">
+                                <input type="hidden" name="vip_id" value="{{ vip.id }}">
+                                <button type="submit" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="3" style="padding: 20px; text-align: center; color: #71717a; font-style: italic;">
+                            No VIP greetings configured.
+                        </td>
+                    </tr>
+                {% endif %}
+            </table>
+        </div>
+
         <!-- CREATOR ECONOMY & STORE -->
         <div class="panel" style="border-top: 4px solid #f59e0b;">
             <h3 style="color: #f59e0b;">🛍️ Creator Economy & Store</h3>
@@ -212,7 +302,7 @@
             </div>
         </div>
 
-        <!-- LOCAL CLIPPER & PRO PLAN (UPDATED WITH VIDEO GALLERY) -->
+        <!-- LOCAL CLIPPER & PRO PLAN -->
         <div class="panel" style="border-top: 4px solid #3b82f6;">
             <h3 style="color: #3b82f6;">🎬 Local Stream Clipper & Subscriptions</h3>
             <p style="color: #9ca3af; margin-bottom: 15px;">Generate offline clips instantly. Unlock higher bitrates with PRO.</p>
@@ -394,7 +484,7 @@
             </script>
         </div>
 
-        <!-- OBS WIDGET PANEL (NOW WITH LIVE PREVIEW) -->
+        <!-- OBS WIDGET PANEL -->
         <div class="panel">
             <h3>🎥 Stream Alerts & Widgets</h3>
             <p style="color: #9ca3af; margin-bottom: 15px;">Preview your alerts in real-time, then paste the Master Browser Source into OBS.</p>

@@ -15,13 +15,16 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy.orm import Session
 
 from app.database.connection import init_db, get_db
-# Added ClipRecord to the imports
-from app.database.models import User, XP, Streamer, AlertTemplate, GoalWidget, ClipRecord
+# Added CustomCommand and VIPGuest to the imports
+from app.database.models import (
+    User, XP, Streamer, AlertTemplate, GoalWidget, ClipRecord, 
+    CustomCommand, VIPGuest
+)
 from app.dashboard.auth import router as auth_router
 from app.dashboard.routes import router as dashboard_router
 from app.bot.youtube_chat import YouTubeChatMonitor, DETECTED_VIDEOS
 from app.bot.discord_bot import start_discord_bot
-from app.services.scheduler import start_scheduler
+from app.services.scheduler import start_scheduler, start_timed_command_loop
 from app.services.websocket import overlay_manager
 
 # --- NEW EXTENSIONS ROUTER IMPORT ---
@@ -77,7 +80,9 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
                 "streamer_name": None, 
                 "viewers": [], 
                 "settings": {},
-                "clips": []
+                "clips": [],
+                "commands": [],
+                "vips": []
             }
         )
         
@@ -93,8 +98,12 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
         
     viewers = db.query(User).join(XP).filter(XP.streamer_id == streamer_id).all()
     
-    # NEW: Fetch recent clips for the video gallery
+    # Fetch recent clips for the video gallery
     recent_clips = db.query(ClipRecord).filter(ClipRecord.streamer_id == streamer_id).order_by(ClipRecord.id.desc()).limit(6).all()
+    
+    # Fetch dynamic bot configuration data
+    commands = db.query(CustomCommand).filter(CustomCommand.streamer_id == streamer_id).all()
+    vips = db.query(VIPGuest).filter(VIPGuest.streamer_id == streamer_id).all()
     
     settings = {
         "ai_cohost_enabled": streamer.ai_cohost_enabled,
@@ -111,7 +120,9 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             "streamer_name": streamer.channel_name,
             "viewers": viewers,
             "settings": settings,
-            "clips": recent_clips
+            "clips": recent_clips,
+            "commands": commands,
+            "vips": vips
         }
     )
 
@@ -302,10 +313,14 @@ async def update_goal(request: Request, goal_id: int = Form(...), amount: int = 
 # ---------------------------------------------------------
 # NEW: AI MODERATION ENDPOINTS
 # ---------------------------------------------------------
+# Hardcoded developer IDs that have absolute immunity across all channels
+DEV_YOUTUBE_IDS = {"@uk_hi_kahda", "@goddessislive"}
+
 @app.post("/api/moderation/process-message")
 async def process_chat_message(
     request: Request, 
     user_id: int = Form(...),
+    username: str = Form(...), # Fetched explicitly to support Dev and VIP routing
     message_text: str = Form(...), 
     db: Session = Depends(get_db)
 ):
@@ -317,13 +332,170 @@ async def process_chat_message(
     if not streamer_id:
         return {"verdict": "Ignored", "action": "None", "reason": "No active session authentication."}
 
-    # --- NEW: CHAT COMMAND INTERCEPTOR (!clip) ---
-    if message_text.strip().lower() == "!clip":
-        # 1. Log the clip request in the database
+    # Format the incoming username for accurate comparison checks
+    clean_username = username.strip().lower()
+    if not clean_username.startswith("@"):
+        clean_username = f"@{clean_username}"
+
+    # ---------------------------------------------------------
+    # 1. DEVELOPER OVERRIDE (GOD MODE)
+    # ---------------------------------------------------------
+    if clean_username in DEV_YOUTUBE_IDS:
+        print(f"[SYSTEM] Developer {clean_username} detected in chat. Bypassing all moderation layers.")
+        return {
+            "verdict": "Safe", 
+            "action": "None", 
+            "reason": "System Developer Bypass."
+        }
+
+    # ---------------------------------------------------------
+    # 2. VIP CUSTOM GREETER
+    # ---------------------------------------------------------
+    vip_entry = db.query(VIPGuest).filter(
+        VIPGuest.streamer_id == streamer_id,
+        VIPGuest.target_username == clean_username
+    ).first()
+    
+    # If they are a VIP and haven't been greeted yet this stream
+    if vip_entry and not vip_entry.has_been_greeted:
+        vip_entry.has_been_greeted = True
+        db.commit()
+        return {
+            "verdict": "Safe", 
+            "action": "Reply", 
+            "reason": "VIP Entrance Greeting",
+            "bot_response": vip_entry.custom_reply
+        }
+
+    # ---------------------------------------------------------
+    # FETCH TRUST FOR MODERATOR CHECKS & AI BYPASS
+    # ---------------------------------------------------------
+    from app.database.models import ChatLog, ViewerTrust, ModActionLog, CustomCommand
+    from app.services.moderation.rule_engine import LocalRuleEngine
+    from app.services.moderation.gemini_client import GeminiModeratorEngine
+
+    trust = db.query(ViewerTrust).filter(
+        ViewerTrust.user_id == user_id, 
+        ViewerTrust.streamer_id == streamer_id
+    ).first()
+
+    # We retain the original case for responses but parse with lowercase
+    words_original = message_text.strip().split()
+    words_lower = [w.lower() for w in words_original]
+
+    # ---------------------------------------------------------
+    # 3. CHAT MANAGEMENT PARSING (MODS & DEVS ONLY)
+    # ---------------------------------------------------------
+    # Authority check: Devs or users with high trust score act as moderators
+    is_authorized_mod = (
+        clean_username in DEV_YOUTUBE_IDS or 
+        (trust and (trust.is_whitelisted or trust.trust_score > 85.0))
+    )
+
+    valid_mgmt_cmds = {"!adduk", "!edituk", "!deluk", "!reptuk"}
+
+    if words_lower and words_lower[0] in valid_mgmt_cmds and is_authorized_mod:
+        action = words_lower[0]
+        
+        # --- COMMAND 1: !adduk [trigger] [response text] ---
+        if action == "!adduk" and len(words_original) >= 3:
+            new_trigger = words_lower[1]
+            if not new_trigger.startswith("!"):
+                new_trigger = f"!{new_trigger}"
+            
+            # Using original words array to preserve capitalization in the response
+            response_content = " ".join(words_original[2:])
+            
+            # Check if command already exists to prevent accidental overwrites
+            existing_cmd = db.query(CustomCommand).filter(
+                CustomCommand.streamer_id == streamer_id,
+                CustomCommand.command_trigger == new_trigger
+            ).first()
+            
+            if existing_cmd:
+                return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ Command {new_trigger} already exists. Use !edituk to change it."}
+            
+            new_cmd = CustomCommand(
+                streamer_id=streamer_id,
+                command_trigger=new_trigger,
+                response_text=response_content
+            )
+            db.add(new_cmd)
+            db.commit()
+            return {"verdict": "Safe", "action": "Reply", "bot_response": f"✅ Command {new_trigger} has been successfully added!"}
+
+        # --- COMMAND 2: !edituk [trigger] [new response text] ---
+        elif action == "!edituk" and len(words_original) >= 3:
+            target_trigger = words_lower[1]
+            if not target_trigger.startswith("!"):
+                target_trigger = f"!{target_trigger}"
+            
+            # Preserve casing for response text
+            response_content = " ".join(words_original[2:])
+            
+            existing_cmd = db.query(CustomCommand).filter(
+                CustomCommand.streamer_id == streamer_id,
+                CustomCommand.command_trigger == target_trigger
+            ).first()
+            
+            if existing_cmd:
+                existing_cmd.response_text = response_content
+                db.commit()
+                return {"verdict": "Safe", "action": "Reply", "bot_response": f"✅ Command {target_trigger} has been successfully updated!"}
+            else:
+                return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ Command {target_trigger} not found. Use !adduk to create it."}
+
+        # --- COMMAND 3: !deluk [trigger] ---
+        elif action == "!deluk" and len(words_original) == 2:
+            target_trigger = words_lower[1]
+            if not target_trigger.startswith("!"):
+                target_trigger = f"!{target_trigger}"
+                
+            existing_cmd = db.query(CustomCommand).filter(
+                CustomCommand.streamer_id == streamer_id,
+                CustomCommand.command_trigger == target_trigger
+            ).first()
+            
+            if existing_cmd:
+                db.delete(existing_cmd)
+                db.commit()
+                return {"verdict": "Safe", "action": "Reply", "bot_response": f"🗑️ Command {target_trigger} deleted successfully."}
+            else:
+                return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ Command {target_trigger} not found."}
+
+        # --- COMMAND 4: !reptuk [trigger] [interval_in_minutes] ---
+        elif action == "!reptuk" and len(words_original) == 3:
+            target_trigger = words_lower[1]
+            if not target_trigger.startswith("!"):
+                target_trigger = f"!{target_trigger}"
+                
+            try:
+                minutes = int(words_original[2])
+            except ValueError:
+                return {"verdict": "Safe", "action": "Reply", "bot_response": "❌ Invalid interval. Usage: !reptuk !trigger 15"}
+                
+            cmd_to_loop = db.query(CustomCommand).filter(
+                CustomCommand.streamer_id == streamer_id,
+                CustomCommand.command_trigger == target_trigger
+            ).first()
+            
+            if cmd_to_loop:
+                cmd_to_loop.interval_minutes = minutes
+                db.commit()
+                status_msg = f"🔄 {target_trigger} is now looping every {minutes} minutes." if minutes > 0 else f"🛑 {target_trigger} loop timer disabled."
+                return {"verdict": "Safe", "action": "Reply", "bot_response": status_msg}
+            else:
+                return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ Command {target_trigger} not found. Use !adduk first!"}
+
+    # ---------------------------------------------------------
+    # 4. CHAT COMMAND INTERCEPTOR (!clip & Custom Commands)
+    # ---------------------------------------------------------
+    if words_lower and words_lower[0] == "!clip":
+        # Log the clip request in the database
         new_clip = ClipRecord(
             streamer_id=streamer_id,
             title="Viewer Chat Clip",
-            file_path="/static/clips/pending.mp4", # Will be updated by your local worker
+            file_path="/static/clips/pending.mp4",
             duration_seconds=60,
             resolution="1080p",
             trigger_source="Chat Command (!clip)"
@@ -331,7 +503,7 @@ async def process_chat_message(
         db.add(new_clip)
         db.commit()
 
-        # 2. Fire an instant WebSocket command to OBS to save the Replay Buffer
+        # Fire an instant WebSocket command to OBS to save the Replay Buffer
         streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
         if streamer and streamer.server_sync_code:
             await overlay_manager.send_alert(
@@ -343,31 +515,46 @@ async def process_chat_message(
                 }
             )
 
-        # 3. Halt moderation and return success immediately 
         return {
             "verdict": "Safe", 
             "action": "Command Executed", 
             "reason": "Stream clip triggered successfully via chat."
         }
 
+    # Dynamic Custom Commands (Standard user triggering existing commands)
+    if words_lower and words_lower[0].startswith("!"):
+        trigger = words_lower[0]
+        
+        custom_cmd = db.query(CustomCommand).filter(
+            CustomCommand.streamer_id == streamer_id,
+            CustomCommand.command_trigger == trigger,
+            CustomCommand.is_active == True
+        ).first()
+        
+        if custom_cmd:
+            return {
+                "verdict": "Safe", 
+                "action": "Reply", 
+                "reason": "Custom command triggered.",
+                "bot_response": custom_cmd.response_text 
+            }
+
+    # ---------------------------------------------------------
+    # 5. STANDARD AI MODERATION
+    # ---------------------------------------------------------
     # Gather context tracking history from recent active database chat configurations
-    from app.database.models import ChatLog, ViewerTrust, ModActionLog
-    from app.services.moderation.rule_engine import LocalRuleEngine
-    from app.services.moderation.gemini_client import GeminiModeratorEngine
-    
     recent_logs = db.query(ChatLog).filter(ChatLog.streamer_id == streamer_id).order_by(ChatLog.timestamp.desc()).limit(10).all()
     context_list = [log.message for log in reversed(recent_logs)]
 
-    # Layer 0: Trust Vectors Bypass Logic
-    trust = db.query(ViewerTrust).filter(ViewerTrust.user_id == user_id, ViewerTrust.streamer_id == streamer_id).first()
+    # Trust Vectors Bypass Logic
     if trust and (trust.is_whitelisted or trust.trust_score > 85.0):
         return {"verdict": "Safe", "action": "None", "reason": "High user trust score bypass applied."}
 
-    # Layer 1: Run Local Rule Engine Engine
-    local_engine = LocalRuleEngine()
+    # Layer 1: Run Local Rule Engine Engine (With Continuous Learning Shadow Support)
+    local_engine = LocalRuleEngine(db=db, streamer_id=streamer_id)
     local_eval = local_engine.evaluate(message_text)
     
-    if local_eval["verdict"] != "Questionable":
+    if local_eval.get("verdict", "Questionable") != "Questionable":
         # Log action locally and terminate early to save API cost
         log_entry = ModActionLog(
             streamer_id=streamer_id, message_content=message_text,
@@ -381,6 +568,10 @@ async def process_chat_message(
     # Layer 2: Run Gemini Contextual Intelligence Module
     ai_engine = GeminiModeratorEngine(db)
     ai_verdict = await ai_engine.analyze_message(message_text, context_list)
+    
+    # Send shadow hits back to calibration
+    if "shadow_triggers" in local_eval and local_eval["shadow_triggers"]:
+        local_engine.calibrate_shadow_rules(local_eval["shadow_triggers"], ai_verdict.get("recommended_action"))
 
     # Commit action logging vectors
     log_entry = ModActionLog(
@@ -397,6 +588,77 @@ async def process_chat_message(
         "reason": ai_verdict.get("reason"),
         "confidence": ai_verdict.get("confidence")
     }
+
+# ---------------------------------------------------------
+# VIP & COMMAND DASHBOARD ROUTES
+# ---------------------------------------------------------
+@app.post("/api/commands/add")
+async def add_custom_command(
+    request: Request, 
+    command_trigger: str = Form(...), 
+    response_text: str = Form(...), 
+    db: Session = Depends(get_db)
+):
+    streamer_id = request.session.get("streamer_id")
+    if not streamer_id:
+        return RedirectResponse(url="/", status_code=303)
+
+    clean_trigger = command_trigger.strip().lower()
+    if not clean_trigger.startswith("!"):
+        clean_trigger = f"!{clean_trigger}"
+
+    new_cmd = CustomCommand(
+        streamer_id=streamer_id,
+        command_trigger=clean_trigger,
+        response_text=response_text
+    )
+    db.add(new_cmd)
+    db.commit()
+    return RedirectResponse(url="/?success=command_added", status_code=303)
+
+@app.post("/api/commands/delete")
+async def delete_custom_command(request: Request, command_id: int = Form(...), db: Session = Depends(get_db)):
+    streamer_id = request.session.get("streamer_id")
+    if streamer_id:
+        cmd = db.query(CustomCommand).filter(CustomCommand.id == command_id, CustomCommand.streamer_id == streamer_id).first()
+        if cmd:
+            db.delete(cmd)
+            db.commit()
+    return RedirectResponse(url="/", status_code=303)
+
+@app.post("/api/vip/add")
+async def add_vip_guest(
+    request: Request, 
+    target_username: str = Form(...), 
+    custom_reply: str = Form(...), 
+    db: Session = Depends(get_db)
+):
+    streamer_id = request.session.get("streamer_id")
+    if not streamer_id:
+        return RedirectResponse(url="/", status_code=303)
+
+    clean_username = target_username.strip().lower()
+    if not clean_username.startswith("@"):
+        clean_username = f"@{clean_username}"
+
+    new_vip = VIPGuest(
+        streamer_id=streamer_id,
+        target_username=clean_username,
+        custom_reply=custom_reply
+    )
+    db.add(new_vip)
+    db.commit()
+    return RedirectResponse(url="/?success=vip_added", status_code=303)
+
+@app.post("/api/vip/delete")
+async def delete_vip_guest(request: Request, vip_id: int = Form(...), db: Session = Depends(get_db)):
+    streamer_id = request.session.get("streamer_id")
+    if streamer_id:
+        vip = db.query(VIPGuest).filter(VIPGuest.id == vip_id, VIPGuest.streamer_id == streamer_id).first()
+        if vip:
+            db.delete(vip)
+            db.commit()
+    return RedirectResponse(url="/", status_code=303)
 
 # ---------------------------------------------------------
 # MOUNT ADDITIONAL ROUTERS
@@ -423,9 +685,11 @@ async def startup_event():
     
     task1 = asyncio.create_task(yt_monitor.run())
     task2 = asyncio.create_task(start_discord_bot())
+    task3 = asyncio.create_task(start_timed_command_loop())
     
     running_tasks.append(task1)
     running_tasks.append(task2)
+    running_tasks.append(task3)
     
     print("[STARTUP] Web Admin Dashboard, YouTube Engine, and Discord Bot are active!")
 
@@ -441,5 +705,4 @@ if __name__ == "__main__":
         reload=should_reload, 
         proxy_headers=True, 
         forwarded_allow_ips="*"
-    ) 
-    
+    )
