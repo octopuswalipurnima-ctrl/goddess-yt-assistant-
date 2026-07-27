@@ -59,18 +59,18 @@ async def on_message(message):
         return
 
     # 🤖 THIRD-PARTY WEBHOOK & BOT INTERCEPTOR (Sapphire, CouchBot, etc.)
-    # We explicitly allow bot authors here because we validated that the channel is verified in the DB!
-    content_to_check = message.content.lower()
+    # Grab the exact text WITHOUT converting to lowercase so we don't break the YouTube ID!
+    content_to_check = message.content or ""
 
     # Pull text layers out of custom styled rich Embed objects sent by Sapphire
     if message.embeds:
         for embed in message.embeds:
             if embed.title:
-                content_to_check += f" {embed.title.lower()}"
+                content_to_check += f" {embed.title}"
             if embed.description:
-                content_to_check += f" {embed.description.lower()}"
+                content_to_check += f" {embed.description}"
             if embed.url:
-                content_to_check += f" {embed.url.lower()}"
+                content_to_check += f" {embed.url}"
 
     # Target specific streaming links within the target channel
     yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})"
