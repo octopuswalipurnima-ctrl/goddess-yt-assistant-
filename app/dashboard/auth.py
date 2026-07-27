@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth
@@ -21,21 +22,27 @@ oauth.register(
 
 @router.get("/login")
 async def login(request: Request):
-    redirect_uri = str(request.url_for('auth_callback'))
-    if "localhost" not in redirect_uri and redirect_uri.startswith("http://"):
-        redirect_uri = redirect_uri.replace("http://", "https://")
+    # Force the exact redirect URI to prevent proxy header mismatches on Railway
+    if request.url.hostname in ["localhost", "127.0.0.1"]:
+        redirect_uri = "http://localhost:8000/auth"
+    else:
+        redirect_uri = "https://goddess-yt-assistant-production-b575.up.railway.app/auth"
         
     print(f"[AUTH ROUTE] Requesting login via: {redirect_uri}", flush=True)
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @router.get("/auth", name="auth_callback")
 async def auth_callback(request: Request, db: Session = Depends(get_db)):
-    if "localhost" not in str(request.url) and str(request.url).startswith("http://"):
-        request.scope["scheme"] = "https"
+    # Apply the same strict enforcement for the authorization token fetch
+    if request.url.hostname in ["localhost", "127.0.0.1"]:
+        redirect_uri = "http://localhost:8000/auth"
+    else:
+        redirect_uri = "https://goddess-yt-assistant-production-b575.up.railway.app/auth"
         
-    print("[AUTH DEBUG] Callback reached. Fetching access token...", flush=True)
+    print(f"[AUTH DEBUG] Callback reached. Fetching access token for {redirect_uri}...", flush=True)
     try:
-        token = await oauth.google.authorize_access_token(request)
+        # Pass the explicit redirect_uri to prevent token validation failures
+        token = await oauth.google.authorize_access_token(request, redirect_uri=redirect_uri)
         print(f"[AUTH DEBUG] Token keys received: {list(token.keys())}", flush=True)
         
         # Fallback parsing if userinfo dictionary is nested differently
