@@ -6,6 +6,7 @@ import string
 import json
 import urllib.request
 import urllib.parse
+import urllib.error
 import uvicorn
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, Depends, Form, WebSocket, WebSocketDisconnect
@@ -157,28 +158,35 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
         return RedirectResponse(url="/", status_code=303)
         
     streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
-    if not streamer or not streamer.youtube_channel_id:
+    if not streamer:
         return RedirectResponse(url="/?error=invalid_channel", status_code=303)
         
     print(f"[PANIC BUTTON] Protocol activated for {streamer.channel_name}!")
     
-    # Grab the API key from environment configuration
-    api_key = getattr(Config, "YOUTUBE_API_KEY", os.environ.get("YOUTUBE_API_KEY"))
+    # Directly grab the key from the environment to prevent config masking
+    api_key = os.environ.get("YOUTUBE_API_KEY")
     if not api_key:
-        print("[PANIC BUTTON ERROR] YOUTUBE_API_KEY missing from environment/config.")
+        print("[PANIC BUTTON ERROR] YOUTUBE_API_KEY is missing from Railway variables.")
         return RedirectResponse(url="/?error=missing_api_key", status_code=303)
         
-    # Call YouTube Data API to search for the active live broadcast on this channel
+    # URL encode the channel name to safely inject it into the link
+    safe_channel_name = urllib.parse.quote(streamer.channel_name)
+    
+    # UPGRADE: Search by channel name instead of a strict channelId to bypass Google Account ID mismatch bugs
     search_url = (
         f"https://www.googleapis.com/youtube/v3/search?"
-        f"part=snippet&channelId={streamer.youtube_channel_id}&eventType=live&type=video&key={api_key}"
+        f"part=snippet&q={safe_channel_name}&eventType=live&type=video&key={api_key}"
     )
     
     try:
-        # Run blocking I/O in a separate thread so we don't freeze the FastAPI event loop
         def fetch_live_stream():
-            with urllib.request.urlopen(search_url) as response:
-                return json.loads(response.read().decode())
+            try:
+                with urllib.request.urlopen(search_url) as response:
+                    return json.loads(response.read().decode())
+            except urllib.error.HTTPError as e:
+                # UPGRADE: Capture the EXACT error Google sends back so we can see it in Railway logs
+                error_details = e.read().decode()
+                raise Exception(f"Google API Rejected Request: {e.code} - {error_details}")
         
         data = await asyncio.to_thread(fetch_live_stream)
         
@@ -188,11 +196,12 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
             DETECTED_VIDEOS.add(video_id)
             return RedirectResponse(url="/?success=bot_deployed", status_code=303)
         else:
-            print(f"[PANIC BUTTON FAILED] Scanned channel but no active live stream was found.")
+            print(f"[PANIC BUTTON FAILED] Scanned YouTube but no active live stream was found for {streamer.channel_name}.")
             return RedirectResponse(url="/?error=not_live", status_code=303)
             
     except Exception as e:
-        print(f"[PANIC BUTTON ERROR] API crash: {e}")
+        # This prints the exact Google error to your Railway Logs
+        print(f"\n[PANIC BUTTON CRITICAL ERROR] \n{e}\n")
         return RedirectResponse(url="/?error=api_crash", status_code=303)
 
 
