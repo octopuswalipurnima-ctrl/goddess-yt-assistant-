@@ -497,7 +497,7 @@ class YouTubeChatMonitor:
                         stream_key = streamer.id if streamer else f"guest_{channel_id}"
                         is_guest = streamer is None
                         
-                        if stream_key not in self.active_streams:
+                        if stream_key not in self.active_streams or self.active_streams[stream_key] != chat_id:
                             self.active_streams[stream_key] = chat_id
                             self.stream_modes[stream_key] = "guest" if is_guest else "premium"
                             
