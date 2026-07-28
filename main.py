@@ -10,7 +10,6 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy.orm import Session
 
@@ -33,29 +32,23 @@ from app.api.creator_economy import router as economy_router
 app = FastAPI(title="Goddess Stream Manager")
 
 # ---------------------------------------------------------
-# MIDDLEWARE & BROWSER SESSIONS
+# MIDDLEWARE & BROWSER SESSIONS (ORDER IS CRITICAL)
 # ---------------------------------------------------------
-class ForceHTTPSMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        if "localhost" not in str(request.url) and request.headers.get("x-forwarded-proto") == "http":
-            request.scope["scheme"] = "https"
-        elif "localhost" not in str(request.url) and str(request.url).startswith("http://"):
-            request.scope["scheme"] = "https"
-        return await call_next(request)
-
-app.add_middleware(ForceHTTPSMiddleware)
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=("*",))
-
 # Automatically detect if the app is running on the live Railway server or locally
 is_production = os.environ.get("PORT") is not None
 
+# 1. Add Session Middleware FIRST (Because FastAPI executes bottom-to-top, this runs LAST)
 app.add_middleware(
     SessionMiddleware, 
     secret_key="super-secret-goddess-key-change-later",
     max_age=3600 * 24 * 7,
-    https_only=is_production,                     # Must be True on Railway so the browser knows it's secure
-    same_site="none" if is_production else "lax"  # "none" allows the cookie to survive the jump back from Google
+    https_only=is_production,
+    same_site="lax" 
 )
+
+# 2. Add Proxy Middleware LAST (This runs FIRST, proving to the Session that Railway is using secure HTTPS)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=("*",))
+
 
 # AUTOMATIC SAFEGUARD
 if not os.path.exists("static"):
