@@ -22,27 +22,18 @@ oauth.register(
 
 @router.get("/login")
 async def login(request: Request):
-    # Force the exact redirect URI to prevent proxy header mismatches on Railway
-    if request.url.hostname in ["localhost", "127.0.0.1"]:
-        redirect_uri = "http://localhost:8000/auth"
-    else:
-        redirect_uri = "https://goddess-yt-assistant-production-b575.up.railway.app/auth"
+    # ProxyHeadersMiddleware in main.py will automatically ensure this is 'https' on Railway
+    redirect_uri = str(request.url_for('auth_callback'))
         
     print(f"[AUTH ROUTE] Requesting login via: {redirect_uri}", flush=True)
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @router.get("/auth", name="auth_callback")
 async def auth_callback(request: Request, db: Session = Depends(get_db)):
-    # Apply the same strict enforcement for the authorization token fetch
-    if request.url.hostname in ["localhost", "127.0.0.1"]:
-        redirect_uri = "http://localhost:8000/auth"
-    else:
-        redirect_uri = "https://goddess-yt-assistant-production-b575.up.railway.app/auth"
-        
-    print(f"[AUTH DEBUG] Callback reached. Fetching access token for {redirect_uri}...", flush=True)
+    print(f"[AUTH DEBUG] Callback reached. Fetching access token...", flush=True)
     try:
-        # Pass the explicit redirect_uri to prevent token validation failures
-        token = await oauth.google.authorize_access_token(request, redirect_uri=redirect_uri)
+        # Removed the duplicate redirect_uri argument that was causing the crash!
+        token = await oauth.google.authorize_access_token(request)
         print(f"[AUTH DEBUG] Token keys received: {list(token.keys())}", flush=True)
         
         # Fallback parsing if userinfo dictionary is nested differently
