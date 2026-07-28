@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Goddess AI - Super Admin Panel</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1, h2 { color: #38bdf8; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        .card { background-color: #1e293b; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #334155; }
+        th { color: #94a3b8; }
+        .btn { background-color: #3b82f6; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn:hover { background-color: #2563eb; }
+        .input-group { margin-bottom: 15px; }
+        .input-group label { display: block; margin-bottom: 5px; color: #cbd5e1; }
+        .input-group input { width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #475569; background-color: #0f172a; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Super Admin Panel</h1>
+
+        <div class="grid">
+            <div class="card">
+                <h2>Active Streams Status</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Channel Name</th>
+                            <th>Mode</th>
+                            <th>Uptime</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for key, data in active_streams.items() %}
+                        <tr>
+                            <td>{{ data.name }}</td>
+                            <td>{{ "Guest" if data.is_guest else "Premium" }}</td>
+                            <td><span class="uptime-timer" data-start="{{ data.start_time }}">Loading...</span></td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="3">No active streams currently being monitored.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card">
+                <h2>API Cost Meters & Caps</h2>
+                <form action="/admin/update-caps" method="POST">
+                    <div class="input-group">
+                        <label>YouTube API Current Cost (Estimate):</label>
+                        <strong style="color: #ef4444;">${{ "%.2f"|format(sys_settings.yt_api_cost) }}</strong>
+                    </div>
+                    <div class="input-group">
+                        <label>YouTube API Cap ($):</label>
+                        <input type="number" step="0.01" name="yt_cap" value="{{ sys_settings.yt_api_cap }}" required>
+                    </div>
+
+                    <hr style="border-color: #334155; margin: 20px 0;">
+
+                    <div class="input-group">
+                        <label>Gemini API Current Cost (Estimate):</label>
+                        <strong style="color: #ef4444;">${{ "%.2f"|format(sys_settings.gemini_api_cost) }}</strong>
+                    </div>
+                    <div class="input-group">
+                        <label>Gemini API Cap ($):</label>
+                        <input type="number" step="0.01" name="gemini_cap" value="{{ sys_settings.gemini_api_cap }}" required>
+                    </div>
+
+                    <button type="submit" class="btn">Update API Caps</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Registered Channels (Streamers)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Channel Name</th>
+                        <th>YouTube Channel ID</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in streamers %}
+                    <tr>
+                        <td>{{ s.id }}</td>
+                        <td>{{ s.channel_name }}</td>
+                        <td>{{ s.youtube_channel_id }}</td>
+                        <td>{{ "Active" if s.is_active else "Inactive" }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4">No registered channels found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function updateUptimes() {
+            const now = Date.now() / 1000;
+            document.querySelectorAll('.uptime-timer').forEach(el => {
+                const start = parseFloat(el.getAttribute('data-start'));
+                if (!isNaN(start)) {
+                    const diff = Math.floor(now - start);
+                    const hours = Math.floor(diff / 3600);
+                    const mins = Math.floor((diff % 3600) / 60);
+                    const secs = diff % 60;
+
+                    let text = "";
+                    if (hours > 0) text += hours + "h ";
+                    text += String(mins).padStart(2, '0') + "m ";
+                    text += String(secs).padStart(2, '0') + "s";
+                    el.textContent = text;
+                }
+            });
+        }
+
+        updateUptimes();
+        setInterval(updateUptimes, 1000);
+    </script>
+</body>
+</html>

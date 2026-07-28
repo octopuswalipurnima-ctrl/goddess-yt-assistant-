@@ -150,9 +150,8 @@ async def guest_join(request: Request, stream_url: str = Form(...)):
     return RedirectResponse(url="/?guest=true", status_code=303)
 
 
-@app.post("/api/panic-button")
-async def panic_button_protocol(request: Request, db: Session = Depends(get_db)):
-    """The Emergency Panic Button: Auto-finds the streamer's live video and forces the bot to join."""
+async def _deploy_bot_to_channel(request: Request, db: Session, error_context: str):
+    """Shared logic for finding and joining a streamer's active live stream."""
     streamer_id = request.session.get("streamer_id")
     if not streamer_id:
         return RedirectResponse(url="/", status_code=303)
@@ -161,18 +160,14 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
     if not streamer:
         return RedirectResponse(url="/?error=invalid_channel", status_code=303)
         
-    print(f"[PANIC BUTTON] Protocol activated for {streamer.channel_name}!")
+    print(f"[{error_context}] Protocol activated for {streamer.channel_name}!")
     
-    # Directly grab the key from the environment to prevent config masking
     api_key = os.environ.get("YOUTUBE_API_KEY")
     if not api_key:
-        print("[PANIC BUTTON ERROR] YOUTUBE_API_KEY is missing from Railway variables.")
+        print(f"[{error_context} ERROR] YOUTUBE_API_KEY is missing from Railway variables.")
         return RedirectResponse(url="/?error=missing_api_key", status_code=303)
         
-    # URL encode the channel name to safely inject it into the link
     safe_channel_name = urllib.parse.quote(streamer.channel_name)
-    
-    # UPGRADE: Search by channel name instead of a strict channelId to bypass Google Account ID mismatch bugs
     search_url = (
         f"https://www.googleapis.com/youtube/v3/search?"
         f"part=snippet&q={safe_channel_name}&eventType=live&type=video&key={api_key}"
@@ -184,7 +179,6 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
                 with urllib.request.urlopen(search_url) as response:
                     return json.loads(response.read().decode())
             except urllib.error.HTTPError as e:
-                # UPGRADE: Capture the EXACT error Google sends back so we can see it in Railway logs
                 error_details = e.read().decode()
                 raise Exception(f"Google API Rejected Request: {e.code} - {error_details}")
         
@@ -200,24 +194,35 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
                     video_id = item["id"]["videoId"]
 
                     if channel_id and channel_id != streamer.youtube_channel_id:
-                        print(f"[PANIC BUTTON AUTO-HEAL] Updating channel ID for {streamer.channel_name} from {streamer.youtube_channel_id} to {channel_id}")
+                        print(f"[{error_context} AUTO-HEAL] Updating channel ID for {streamer.channel_name} from {streamer.youtube_channel_id} to {channel_id}")
                         streamer.youtube_channel_id = channel_id
                         db.commit()
 
-                    print(f"[PANIC BUTTON SUCCESS] Target acquired: {video_id}. Deploying bot...")
+                    print(f"[{error_context} SUCCESS] Target acquired: {video_id}. Deploying bot...")
                     DETECTED_VIDEOS.add(video_id)
                     return RedirectResponse(url="/?success=bot_deployed", status_code=303)
 
-            print(f"[PANIC BUTTON FAILED] Scanned YouTube but no matching active live stream was found for {streamer.channel_name}.")
+            print(f"[{error_context} FAILED] Scanned YouTube but no matching active live stream was found for {streamer.channel_name}.")
             return RedirectResponse(url="/?error=not_live", status_code=303)
         else:
-            print(f"[PANIC BUTTON FAILED] Scanned YouTube but no active live stream was found for {streamer.channel_name}.")
+            print(f"[{error_context} FAILED] Scanned YouTube but no active live stream was found for {streamer.channel_name}.")
             return RedirectResponse(url="/?error=not_live", status_code=303)
             
     except Exception as e:
-        # This prints the exact Google error to your Railway Logs
-        print(f"\n[PANIC BUTTON CRITICAL ERROR] \n{e}\n")
+        print(f"\n[{error_context} CRITICAL ERROR] \n{e}\n")
         return RedirectResponse(url="/?error=api_crash", status_code=303)
+
+
+@app.post("/api/join-channel")
+async def join_channel(request: Request, db: Session = Depends(get_db)):
+    """Explicitly requests the bot to join the streamer's channel as a moderator."""
+    return await _deploy_bot_to_channel(request, db, "JOIN CHANNEL")
+
+
+@app.post("/api/panic-button")
+async def panic_button_protocol(request: Request, db: Session = Depends(get_db)):
+    """The Emergency Panic Button: Auto-finds the streamer's live video and forces the bot to join."""
+    return await _deploy_bot_to_channel(request, db, "PANIC BUTTON")
 
 
 # ---------------------------------------------------------

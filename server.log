@@ -1,0 +1,38 @@
+/app/main.py:867: DeprecationWarning:
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+
+  @app.on_event("startup")
+INFO:     Will watch for changes in these directories: ['/app']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [323380] using StatReload
+[BOOT] Launching Uvicorn server on port 8000...
+INFO:     Started server process [324456]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+[STARTUP] Initializing systems...
+[SCHEDULER] Loyalty loops, Queue Sweepers, VIP resets, and AI chronometers initialized successfully.
+[STARTUP] Web Admin Dashboard, YouTube Engine, and Discord Bot are active!
+[YOUTUBE DETECTOR] Event-Driven Engine Online. Waiting for Discord pings...
+[SCHEDULER] Timed Command Repetition Loop Engine Started!
+INFO:     127.0.0.1:34606 - "GET /admin HTTP/1.1" 303 See Other
+INFO:     127.0.0.1:34606 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34606 - "GET / HTTP/1.1" 200 OK
+WARNING:  StatReload detected changes in 'main.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [324456]
+INFO:     Started server process [373039]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  StatReload detected changes in 'main.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [373039]
+INFO:     Started server process [379695]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.

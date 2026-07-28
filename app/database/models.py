@@ -392,6 +392,16 @@ class AutoLearnedRule(Base):
     streamer = relationship("Streamer", back_populates="auto_learned_rules")
 
 
+class SystemSettings(Base):
+    """Global system settings, including API cost tracking and caps."""
+    __tablename__ = "system_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    yt_api_cap = Column(Float, default=100.0)
+    gemini_api_cap = Column(Float, default=100.0)
+    yt_api_cost = Column(Float, default=0.0)
+    gemini_api_cost = Column(Float, default=0.0)
+
 class CostSavingsAnalytics(Base):
     """Aggregates local layer deterministic bypass hits to render the dashboard ROI metric charts."""
     __tablename__ = "cost_savings_analytics"

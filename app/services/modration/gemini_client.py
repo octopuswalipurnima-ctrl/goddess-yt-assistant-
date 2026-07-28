@@ -5,7 +5,7 @@ from fastapi import Request
 from sqlalchemy.orm import Session
 from google import genai
 from google.genai import types
-from app.database.models import DecisionCache
+from app.database.models import DecisionCache, SystemSettings
 
 # Initialize modern GenAI SDK
 # Make sure to set GEMINI_API_KEY in your Railway deployment environment variables
@@ -62,6 +62,22 @@ class GeminiModeratorEngine:
         )
 
         try:
+            sys_settings = self.db.query(SystemSettings).first()
+            if not sys_settings:
+                sys_settings = SystemSettings()
+                self.db.add(sys_settings)
+                self.db.commit()
+                self.db.refresh(sys_settings)
+
+            if sys_settings.gemini_api_cost >= sys_settings.gemini_api_cap:
+                return {
+                    "classification": "ErrorFallback",
+                    "severity": "Low",
+                    "confidence": 100,
+                    "recommended_action": "Safe",
+                    "reason": "AI Engine execution failure gracefully bypassed: Cost Cap Exceeded"
+                }
+
             # Modern structured generation call with mandatory JSON Schema response configuration
             response = client.models.generate_content(
                 model=self.model_name,
@@ -74,6 +90,9 @@ class GeminiModeratorEngine:
                 )
             )
             
+            sys_settings.gemini_api_cost += 0.05
+            self.db.commit()
+
             decision = json.loads(response.text)
             
             # 3. Update structural cache asynchronously if marked safe or cleanly classifiable

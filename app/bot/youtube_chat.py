@@ -14,11 +14,13 @@ from app.ai.generator import AIBrain
 from app.utils.config import Config
 from app.services.websocket import overlay_manager  # <-- NEW: OBS WebSocket Manager
 
+from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemSettings
+
 # ---------------------------------------------------------
 # SHARED MEMORY: Used to pass video links from Discord to YouTube
 # ---------------------------------------------------------
 DETECTED_VIDEOS = set()
-
+ACTIVE_STREAMS_STATE = {}
 
 class YouTubeChatMonitor:
     def __init__(self):
@@ -503,6 +505,7 @@ class YouTubeChatMonitor:
                             
                             mode_str = "🟡 GUEST" if is_guest else "🟢 PREMIUM"
                             name = streamer.channel_name if streamer else f"Guest Stream ({channel_id})"
+                            ACTIVE_STREAMS_STATE[stream_key] = {"name": name, "start_time": time.time(), "is_guest": is_guest}
                             print(f"[LIVE] {mode_str} Connected to {name}'s chat!")
 
                             if is_guest:
@@ -511,13 +514,29 @@ class YouTubeChatMonitor:
                                 await self.send_message("🟢 Goddess AI system online and ready! Try typing !stats to view your coins.", chat_id)
                 
                 active_streamer_ids = list(self.active_streams.keys())
+
+                # Fetch System Settings for cost capping
+                sys_settings = db.query(SystemSettings).first()
+                if not sys_settings:
+                    sys_settings = SystemSettings()
+                    db.add(sys_settings)
+                    db.commit()
+                    db.refresh(sys_settings)
+
                 for streamer_key in active_streamer_ids:
                     chat_id = self.active_streams[streamer_key]
                     token = self.next_page_tokens.get(chat_id)
                     is_guest = self.stream_modes.get(streamer_key) == "guest"
                     
                     try:
+                        if sys_settings.yt_api_cost >= sys_settings.yt_api_cap:
+                            # print(f"[QUOTA LIMIT] Skipping YT API call, cost cap exceeded.")
+                            continue
+
                         response = self.youtube.liveChatMessages().list(liveChatId=chat_id, part="snippet,authorDetails", pageToken=token).execute()
+
+                        sys_settings.yt_api_cost += 0.01
+                        db.commit()
                         self.next_page_tokens[chat_id] = response.get("nextPageToken")
                         
                         for item in response.get("items", []):
@@ -539,6 +558,8 @@ class YouTubeChatMonitor:
                     except Exception as fetch_err:
                         print(f"[STREAM ENDED] 🔴 Disconnected from chat.")
                         del self.active_streams[streamer_key]
+                        if streamer_key in ACTIVE_STREAMS_STATE:
+                            del ACTIVE_STREAMS_STATE[streamer_key]
                         if streamer_key in self.stream_modes:
                             del self.stream_modes[streamer_key]
 

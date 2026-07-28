@@ -5,8 +5,9 @@ from fastapi.templating import Jinja2Templates
 from fastapi.requests import Request
 from sqlalchemy.orm import Session
 from app.database.connection import get_db
-from app.database.models import User, XP, Coin, ChatLog
+from app.database.models import User, XP, Coin, ChatLog, Streamer, SystemSettings
 from app.utils.config import Config
+from app.bot.youtube_chat import ACTIVE_STREAMS_STATE
 
 router = APIRouter()
 
@@ -45,6 +46,74 @@ async def admin_dashboard(request: Request, db: Session = Depends(get_db)):
             "settings": GLOBAL_SETTINGS
         }
     )
+
+@router.get("/admin", response_class=HTMLResponse)
+async def super_admin_dashboard(request: Request, db: Session = Depends(get_db)):
+    streamer_id = request.session.get("streamer_id")
+    if not streamer_id:
+        return RedirectResponse(url="/", status_code=303)
+
+    streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+    if not streamer:
+        return RedirectResponse(url="/", status_code=303)
+
+    # Check if the user is an admin
+    DEV_YOUTUBE_IDS = {"@uk_hi_kahda", "@goddessislive"}
+    channel_handle = streamer.channel_name.lower().replace(" ", "")
+    if not channel_handle.startswith("@"):
+        channel_handle = f"@{channel_handle}"
+
+    if channel_handle not in DEV_YOUTUBE_IDS:
+        print(f"[AUTH DENIED] {channel_handle} attempted to access super admin panel.", flush=True)
+        return RedirectResponse(url="/", status_code=303)
+
+    sys_settings = db.query(SystemSettings).first()
+    if not sys_settings:
+        sys_settings = SystemSettings()
+        db.add(sys_settings)
+        db.commit()
+        db.refresh(sys_settings)
+
+    all_streamers = db.query(Streamer).all()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="admin.html",
+        context={
+            "active_streams": ACTIVE_STREAMS_STATE,
+            "sys_settings": sys_settings,
+            "streamers": all_streamers
+        }
+    )
+
+@router.post("/admin/update-caps")
+async def update_caps(request: Request, yt_cap: float = Form(...), gemini_cap: float = Form(...), db: Session = Depends(get_db)):
+    streamer_id = request.session.get("streamer_id")
+    if not streamer_id:
+        return RedirectResponse(url="/", status_code=303)
+
+    streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+    if not streamer:
+        return RedirectResponse(url="/", status_code=303)
+
+    DEV_YOUTUBE_IDS = {"@uk_hi_kahda", "@goddessislive"}
+    channel_handle = streamer.channel_name.lower().replace(" ", "")
+    if not channel_handle.startswith("@"):
+        channel_handle = f"@{channel_handle}"
+
+    if channel_handle not in DEV_YOUTUBE_IDS:
+        return RedirectResponse(url="/", status_code=303)
+
+    sys_settings = db.query(SystemSettings).first()
+    if not sys_settings:
+        sys_settings = SystemSettings()
+        db.add(sys_settings)
+
+    sys_settings.yt_api_cap = yt_cap
+    sys_settings.gemini_api_cap = gemini_cap
+    db.commit()
+
+    return RedirectResponse(url="/admin", status_code=303)
 
 @router.post("/toggle-ai")
 async def toggle_ai(mode: str = Form(...)):
