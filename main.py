@@ -110,6 +110,12 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
         "is_discord_linked": bool(streamer.discord_guild_id)
     }
     
+    # Fetch user's custom layout config
+    layout_config = {}
+    template_record = db.query(AlertTemplate).filter(AlertTemplate.streamer_id == streamer_id).first()
+    if template_record and template_record.config_json:
+        layout_config = template_record.config_json
+
     return templates.TemplateResponse(
         request=request, 
         name="index.html", 
@@ -120,7 +126,8 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             "settings": settings,
             "clips": recent_clips,
             "commands": commands,
-            "vips": vips
+            "vips": vips,
+            "layout_config": layout_config
         }
     )
 
@@ -209,14 +216,23 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
 # OBS WEBSOCKET & WIDGET ROUTES
 # ---------------------------------------------------------
 @app.get("/overlay/{sync_code}")
-async def render_overlay(request: Request, sync_code: str):
+async def render_overlay(request: Request, sync_code: str, db: Session = Depends(get_db)):
     """The actual webpage that OBS loads as a Browser Source."""
     active_theme = request.session.get("active_theme", "neon")
     custom_css = request.session.get("custom_css", "")
+
+    # Fetch streamer and their layout config
+    layout_config = {}
+    streamer = db.query(Streamer).filter(Streamer.server_sync_code == sync_code).first()
+    if streamer:
+        template_record = db.query(AlertTemplate).filter(AlertTemplate.streamer_id == streamer.id).first()
+        if template_record and template_record.config_json:
+            layout_config = template_record.config_json
+
     return templates.TemplateResponse(
         request=request,
         name="overlay.html", 
-        context={"request": request, "sync_code": sync_code, "active_theme": active_theme, "custom_css": custom_css}
+        context={"request": request, "sync_code": sync_code, "active_theme": active_theme, "custom_css": custom_css, "layout_config": layout_config}
     )
 
 @app.websocket("/ws/overlay/{sync_code}")

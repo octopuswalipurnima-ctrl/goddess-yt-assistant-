@@ -473,23 +473,60 @@
                 
                 <div style="display: flex; gap: 20px;">
                     <!-- Left Column: Controls -->
-                    <div style="flex: 1; background: #2a2a32; padding: 15px; border-radius: 8px;">
-                        <label style="display: block; color: #fff; margin-bottom: 5px;">Entrance Animation</label>
-                        <select id="animSelect" style="width: 100%; padding: 8px; margin-bottom: 15px; background: #111; color: white; border: 1px solid #444;">
-                            <option value="popIn">Pop In (Classic)</option>
-                            <option value="elasticBounce">Elastic Bounce</option>
-                            <option value="glitch">Cyber Glitch</option>
-                            <option value="slideIn">Slide In</option>
-                        </select>
+                    <div style="flex: 1; background: #2a2a32; padding: 15px; border-radius: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div style="grid-column: span 2;">
+                            <label style="display: block; color: #fff; margin-bottom: 5px;">Entrance Animation</label>
+                            <select id="animSelect" style="width: 100%; padding: 8px; background: #111; color: white; border: 1px solid #444;">
+                                <option value="popIn" {% if layout_config.get('animation_in') == 'popIn' %}selected{% endif %}>Pop In (Classic)</option>
+                                <option value="elasticBounce" {% if layout_config.get('animation_in') == 'elasticBounce' %}selected{% endif %}>Elastic Bounce</option>
+                                <option value="glitch" {% if layout_config.get('animation_in') == 'glitch' %}selected{% endif %}>Cyber Glitch</option>
+                                <option value="slideIn" {% if layout_config.get('animation_in') == 'slideIn' %}selected{% endif %}>Slide In</option>
+                                <option value="fadeZoom" {% if layout_config.get('animation_in') == 'fadeZoom' %}selected{% endif %}>Fade & Zoom</option>
+                            </select>
+                        </div>
 
-                        <label style="display: block; color: #fff; margin-bottom: 5px;">Border Radius</label>
-                        <input type="range" id="borderRadius" min="0" max="50" value="16" style="width: 100%; margin-bottom: 15px;">
+                        <div>
+                            <label style="display: block; color: #fff; margin-bottom: 5px;">Border Radius</label>
+                            <input type="range" id="borderRadius" min="0" max="50" value="{{ layout_config.get('border_radius', 16) }}" style="width: 100%;">
+                        </div>
 
-                        <label style="display: block; color: #fff; margin-bottom: 5px;">Enable Avatar Layer</label>
-                        <input type="checkbox" id="showAvatar" checked style="margin-bottom: 15px;">
+                        <div>
+                            <label style="display: block; color: #fff; margin-bottom: 5px;">Font Family</label>
+                            <select id="fontFamily" style="width: 100%; padding: 8px; background: #111; color: white; border: 1px solid #444;">
+                                <option value="Segoe UI, Tahoma, Geneva, Verdana, sans-serif" {% if layout_config.get('font_family') == 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' %}selected{% endif %}>Default (Sans)</option>
+                                <option value="'Courier New', Courier, monospace" {% if layout_config.get('font_family') == "'Courier New', Courier, monospace" %}selected{% endif %}>Monospace</option>
+                                <option value="Georgia, serif" {% if layout_config.get('font_family') == 'Georgia, serif' %}selected{% endif %}>Serif</option>
+                                <option value="'Impact', sans-serif" {% if layout_config.get('font_family') == "'Impact', sans-serif" %}selected{% endif %}>Impact</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label style="display: block; color: #fff; margin-bottom: 5px;">Text Color</label>
+                            <input type="color" id="textColor" value="{{ layout_config.get('text_color', '#ffffff') }}" style="width: 100%; height: 40px; background: none; border: 1px solid #444; padding: 0;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; color: #fff; margin-bottom: 5px;">Background Color</label>
+                            <input type="color" id="bgColor" value="{{ layout_config.get('bg_color', '#1e1e24') }}" style="width: 100%; height: 40px; background: none; border: 1px solid #444; padding: 0;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; color: #fff; margin-bottom: 5px;">Border Color</label>
+                            <input type="color" id="borderColor" value="{{ layout_config.get('border_color', '#a855f7') }}" style="width: 100%; height: 40px; background: none; border: 1px solid #444; padding: 0;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; color: #fff; margin-bottom: 5px;">Font Size Scale (%)</label>
+                            <input type="number" id="fontSizeScale" min="50" max="200" value="{{ layout_config.get('font_size_scale', 100) }}" style="width: 100%; padding: 8px; background: #111; color: white; border: 1px solid #444;">
+                        </div>
+
+                        <div style="grid-column: span 2;">
+                            <label style="display: block; color: #fff; margin-bottom: 5px;">Enable Avatar Layer</label>
+                            <input type="checkbox" id="showAvatar" {% if layout_config.get('show_avatar', True) %}checked{% endif %}>
+                        </div>
 
                         <!-- This hidden input holds the generated JSON payload -->
-                        <form action="/api/save-alert-layout" method="POST" id="builderForm">
+                        <form action="/api/save-alert-layout" method="POST" id="builderForm" style="grid-column: span 2; margin-top: 10px;">
                             <input type="hidden" name="layout_config" id="layoutConfigPayload">
                             <button type="button" onclick="saveLayout()" style="background: #fbbf24; color: #000; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%;">
                                 Save Configuration
@@ -509,27 +546,35 @@
                     const config = {
                         animation_in: document.getElementById('animSelect').value,
                         border_radius: document.getElementById('borderRadius').value,
-                        show_avatar: document.getElementById('showAvatar').checked
+                        show_avatar: document.getElementById('showAvatar').checked,
+                        font_family: document.getElementById('fontFamily').value,
+                        text_color: document.getElementById('textColor').value,
+                        bg_color: document.getElementById('bgColor').value,
+                        border_color: document.getElementById('borderColor').value,
+                        font_size_scale: document.getElementById('fontSizeScale').value
                     };
                     
                     document.getElementById('layoutConfigPayload').value = JSON.stringify(config);
                     document.getElementById('builderForm').submit();
                 }
 
+                // Helper to post messages
+                function updatePreview(key, value) {
+                    const previewFrame = document.querySelector('iframe').contentWindow;
+                    const config = {};
+                    config[key] = value;
+                    previewFrame.postMessage({ type: 'preview_config', config: config }, '*');
+                }
+
                 // Attach real-time preview listeners
-                document.getElementById('borderRadius').addEventListener('input', (e) => {
-                    // Ping the iframe preview to update instantly without saving to DB
-                    const previewFrame = document.querySelector('iframe').contentWindow;
-                    previewFrame.postMessage({ type: 'preview_config', config: { border_radius: e.target.value } }, '*');
-                });
-                document.getElementById('animSelect').addEventListener('change', (e) => {
-                    const previewFrame = document.querySelector('iframe').contentWindow;
-                    previewFrame.postMessage({ type: 'preview_config', config: { animation_in: e.target.value } }, '*');
-                });
-                document.getElementById('showAvatar').addEventListener('change', (e) => {
-                    const previewFrame = document.querySelector('iframe').contentWindow;
-                    previewFrame.postMessage({ type: 'preview_config', config: { show_avatar: e.target.checked } }, '*');
-                });
+                document.getElementById('borderRadius').addEventListener('input', (e) => updatePreview('border_radius', e.target.value));
+                document.getElementById('animSelect').addEventListener('change', (e) => updatePreview('animation_in', e.target.value));
+                document.getElementById('showAvatar').addEventListener('change', (e) => updatePreview('show_avatar', e.target.checked));
+                document.getElementById('fontFamily').addEventListener('change', (e) => updatePreview('font_family', e.target.value));
+                document.getElementById('textColor').addEventListener('input', (e) => updatePreview('text_color', e.target.value));
+                document.getElementById('bgColor').addEventListener('input', (e) => updatePreview('bg_color', e.target.value));
+                document.getElementById('borderColor').addEventListener('input', (e) => updatePreview('border_color', e.target.value));
+                document.getElementById('fontSizeScale').addEventListener('input', (e) => updatePreview('font_size_scale', e.target.value));
             </script>
         </div>
 
