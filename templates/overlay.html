@@ -118,10 +118,13 @@
             /* 🟣 DEFAULT NEON THEME & SMART BUILDER BASE */
             :root {
                 /* Variables that the Visual Builder will update */
-                --alert-bg-color: linear-gradient(135deg, #1e1e24, #2a2a32);
+                --alert-bg-color: #1e1e24;
                 --alert-border-color: #a855f7;
                 --alert-border-radius: 16px;
                 --alert-anim-in: popIn;
+                --alert-text-color: #ffffff;
+                --alert-font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                --alert-font-size: 100%;
             }
             
             .alert-box {
@@ -129,7 +132,9 @@
                 border: 3px solid var(--alert-border-color);
                 border-radius: var(--alert-border-radius);
                 padding: 20px 40px;
-                color: white;
+                color: var(--alert-text-color);
+                font-family: var(--alert-font-family);
+                font-size: var(--alert-font-size);
                 text-align: center;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 20px rgba(168, 85, 247, 0.4);
                 min-width: 350px;
@@ -142,16 +147,38 @@
             .alert-box.superChatEvent { border-color: #facc15; box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 20px rgba(250, 204, 21, 0.4); }
             .alert-box.newSponsorEvent { border-color: #22c55e; box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 20px rgba(34, 197, 94, 0.4); }
 
-            .alert-author { font-size: 28px; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
-            .alert-amount { color: #4ade80; font-size: 26px; font-weight: 900; margin-bottom: 5px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
-            .alert-message { font-size: 20px; margin-top: 10px; font-style: italic; color: #e5e7eb; line-height: 1.4; }
-            .avatar-layer { width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 10px auto; border: 2px solid white; display: none; }
+            .alert-author { font-size: 1.4em; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; color: inherit; }
+            .alert-amount { color: #4ade80; font-size: 1.3em; font-weight: 900; margin-bottom: 5px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+            .alert-message { font-size: 1em; margin-top: 10px; font-style: italic; opacity: 0.9; line-height: 1.4; color: inherit; }
+            .avatar-layer { width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 10px auto; border: 2px solid var(--alert-border-color); display: none; }
             .show-avatar .avatar-layer { display: block; }
             
             @keyframes popIn {
                 0% { transform: scale(0.5) translateY(-50px); opacity: 0; }
                 70% { transform: scale(1.05) translateY(0); opacity: 1; }
                 100% { transform: scale(1) translateY(0); opacity: 1; }
+            }
+            @keyframes elasticBounce {
+                0% { transform: scale(0.3); opacity: 0; }
+                50% { transform: scale(1.1); opacity: 1; }
+                70% { transform: scale(0.9); }
+                100% { transform: scale(1); opacity: 1; }
+            }
+            @keyframes glitch {
+                0% { transform: translate(0) scale(1); opacity: 0; }
+                20% { transform: translate(-10px, 5px) scale(1.05); opacity: 1; filter: hue-rotate(90deg); }
+                40% { transform: translate(10px, -5px) scale(0.95); filter: hue-rotate(-90deg); }
+                60% { transform: translate(-5px, 10px) scale(1.02); filter: hue-rotate(45deg); }
+                80% { transform: translate(5px, -10px) scale(0.98); filter: hue-rotate(-45deg); }
+                100% { transform: translate(0) scale(1); opacity: 1; filter: none; }
+            }
+            @keyframes slideIn {
+                0% { transform: translateX(-100vw); opacity: 0; }
+                100% { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes fadeZoom {
+                0% { opacity: 0; transform: scale(0.8); }
+                100% { opacity: 1; transform: scale(1); }
             }
             @keyframes slideOut {
                 0% { transform: scale(1) translateY(0); opacity: 1; }
@@ -265,13 +292,26 @@
             const root = document.documentElement;
             if (config.border_radius !== undefined) root.style.setProperty('--alert-border-radius', config.border_radius + 'px');
             if (config.animation_in) root.style.setProperty('--alert-anim-in', config.animation_in);
+            if (config.text_color) root.style.setProperty('--alert-text-color', config.text_color);
+            if (config.bg_color) root.style.setProperty('--alert-bg-color', config.bg_color);
+            if (config.border_color) root.style.setProperty('--alert-border-color', config.border_color);
+            if (config.font_family) root.style.setProperty('--alert-font-family', config.font_family);
+            if (config.font_size_scale) root.style.setProperty('--alert-font-size', config.font_size_scale + '%');
             
             // Toggle avatar class on wrapper (which we will add inside playNextAlert)
-            if (config.show_avatar) {
-                document.body.classList.add('show-avatar');
-            } else {
-                document.body.classList.remove('show-avatar');
+            if (config.show_avatar !== undefined) {
+                if (config.show_avatar) {
+                    document.body.classList.add('show-avatar');
+                } else {
+                    document.body.classList.remove('show-avatar');
+                }
             }
+        }
+
+        // Initial setup from server side template logic
+        const initialConfig = {{ layout_config | tojson | safe }};
+        if (initialConfig) {
+            applyVisualConfig(initialConfig);
         }
 
         // --- NEW: Goal Bar Engine ---
