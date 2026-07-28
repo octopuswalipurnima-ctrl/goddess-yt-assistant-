@@ -131,6 +131,34 @@
             <p style="color: #9ca3af; margin-top: 5px;">Your dashboard is active and synced.</p>
         </div>
 
+        <!-- 🚨 PANIC BUTTON PROTOCOL 🚨 -->
+        <div style="margin-bottom: 30px; background: rgba(239, 68, 68, 0.1); border: 1px dashed #ef4444; padding: 20px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+                <h4 style="margin: 0 0 5px 0; color: #ef4444; font-size: 1.1em;">🚨 Panic Button Protocol</h4>
+                <p style="margin: 0; color: #fca5a5; font-size: 0.9em; max-width: 450px;">Did the Discord webhook fail? Click this button to forcefully scan your channel and instantly deploy the bot into your active live stream.</p>
+            </div>
+            <form action="/api/panic-button" method="POST">
+                <button type="submit" style="background: #ef4444; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em; box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);">
+                    Deploy Bot Now
+                </button>
+            </form>
+        </div>
+
+        <!-- System Alerts for Panic Button -->
+        {% if request.query_params.get('success') == 'bot_deployed' %}
+            <div style="background: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; padding: 15px; border-radius: 8px; color: #4ade80; margin-bottom: 25px; font-weight: bold;">
+                ✅ Protocol Successful: Target acquired and Bot deployed to your live chat!
+            </div>
+        {% elif request.query_params.get('error') == 'not_live' %}
+            <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid #f59e0b; padding: 15px; border-radius: 8px; color: #f59e0b; margin-bottom: 25px; font-weight: bold;">
+                ⚠️ Scan Complete: We checked your channel, but you are not currently live on YouTube.
+            </div>
+        {% elif request.query_params.get('error') == 'api_crash' or request.query_params.get('error') == 'missing_api_key' %}
+            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; padding: 15px; border-radius: 8px; color: #ef4444; margin-bottom: 25px; font-weight: bold;">
+                ❌ API Error: The YouTube Data API failed to process the request. Check your quota and API Key in the server config.
+            </div>
+        {% endif %}
+
         <!-- INTELLIGENT AI MODERATION CENTER -->
         <div class="panel" style="border-left: 4px solid #10b981;">
             <h3 style="color: #10b981;">🤖 Intelligent AI Moderation Center</h3>
@@ -166,6 +194,27 @@
                     <span>🟢 Positive: 70%</span>
                     <span>🟡 Neutral: 20%</span>
                     <span>🔴 Toxic: 10%</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 1v1 QUEUE MANAGER -->
+        <div class="panel" style="border-top: 4px solid #0ea5e9;">
+            <h3 style="color: #0ea5e9;">⚔️ Live 1v1 Arena Queue</h3>
+            <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Users enter the queue by typing <code>!join</code> in chat. AFK users are automatically removed after 10 minutes of silence.</p>
+            
+            <div style="background: #18181b; border-radius: 8px; border: 1px solid #27272a; padding: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px;">
+                    <span style="color: #e5e7eb; font-weight: bold;">Current Waiting List</span>
+                    <span style="color: #0ea5e9; font-size: 0.9em;">Mods use <code>!next</code> to pull players</span>
+                </div>
+                
+                <div id="queue-list" style="color: #9ca3af; font-family: monospace; font-size: 1.1em; line-height: 1.8;">
+                    <!-- Note: In a fully fleshed out dashboard, this would fetch the live DB list via AJAX. 
+                         For now, this provides the structure for the streamer. -->
+                    <span style="color: #3b82f6;">#1</span> @RahulGamer99<br>
+                    <span style="color: #6b7280;">#2</span> @BGMI_King<br>
+                    <span style="color: #6b7280;">#3</span> @SniperElite_TV
                 </div>
             </div>
         </div>
