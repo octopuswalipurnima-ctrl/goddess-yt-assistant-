@@ -46,12 +46,15 @@ class ForceHTTPSMiddleware(BaseHTTPMiddleware):
 app.add_middleware(ForceHTTPSMiddleware)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=("*",))
 
+# Automatically detect if the app is running on the live Railway server or locally
+is_production = os.environ.get("PORT") is not None
+
 app.add_middleware(
     SessionMiddleware, 
     secret_key="super-secret-goddess-key-change-later",
     max_age=3600 * 24 * 7,
-    https_only=False,
-    same_site="lax"
+    https_only=is_production,                     # Must be True on Railway so the browser knows it's secure
+    same_site="none" if is_production else "lax"  # "none" allows the cookie to survive the jump back from Google
 )
 
 # AUTOMATIC SAFEGUARD
