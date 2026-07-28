@@ -4,7 +4,10 @@ import asyncio
 import random
 import string
 import json
+import urllib.request
+import urllib.parse
 import uvicorn
+from datetime import datetime, timezone
 from fastapi import FastAPI, Request, Depends, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,10 +17,10 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy.orm import Session
 
 from app.database.connection import init_db, get_db
-# Added CustomCommand and VIPGuest to the imports
+# Added Coin and WaitingListEntry for the new features
 from app.database.models import (
     User, XP, Streamer, AlertTemplate, GoalWidget, ClipRecord, 
-    CustomCommand, VIPGuest
+    CustomCommand, VIPGuest, Coin, WaitingListEntry
 )
 from app.dashboard.auth import router as auth_router
 from app.dashboard.routes import router as dashboard_router
@@ -25,16 +28,14 @@ from app.bot.youtube_chat import YouTubeChatMonitor, DETECTED_VIDEOS
 from app.bot.discord_bot import start_discord_bot
 from app.services.scheduler import start_scheduler, start_timed_command_loop
 from app.services.websocket import overlay_manager
-
-# --- NEW EXTENSIONS ROUTER IMPORT ---
 from app.api.creator_economy import router as economy_router
+from app.utils.config import Config
 
 app = FastAPI(title="Goddess Stream Manager")
 
 # ---------------------------------------------------------
 # MIDDLEWARE & BROWSER SESSIONS (ORDER IS CRITICAL)
 # ---------------------------------------------------------
-# Automatically detect if the app is running on the live Railway server or locally
 is_production = os.environ.get("PORT") is not None
 
 # 1. Add Session Middleware FIRST (Because FastAPI executes bottom-to-top, this runs LAST)
@@ -146,6 +147,53 @@ async def guest_join(request: Request, stream_url: str = Form(...)):
         DETECTED_VIDEOS.add(video_id)
         
     return RedirectResponse(url="/?guest=true", status_code=303)
+
+
+@app.post("/api/panic-button")
+async def panic_button_protocol(request: Request, db: Session = Depends(get_db)):
+    """The Emergency Panic Button: Auto-finds the streamer's live video and forces the bot to join."""
+    streamer_id = request.session.get("streamer_id")
+    if not streamer_id:
+        return RedirectResponse(url="/", status_code=303)
+        
+    streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+    if not streamer or not streamer.youtube_channel_id:
+        return RedirectResponse(url="/?error=invalid_channel", status_code=303)
+        
+    print(f"[PANIC BUTTON] Protocol activated for {streamer.channel_name}!")
+    
+    # Grab the API key from environment configuration
+    api_key = getattr(Config, "YOUTUBE_API_KEY", os.environ.get("YOUTUBE_API_KEY"))
+    if not api_key:
+        print("[PANIC BUTTON ERROR] YOUTUBE_API_KEY missing from environment/config.")
+        return RedirectResponse(url="/?error=missing_api_key", status_code=303)
+        
+    # Call YouTube Data API to search for the active live broadcast on this channel
+    search_url = (
+        f"https://www.googleapis.com/youtube/v3/search?"
+        f"part=snippet&channelId={streamer.youtube_channel_id}&eventType=live&type=video&key={api_key}"
+    )
+    
+    try:
+        # Run blocking I/O in a separate thread so we don't freeze the FastAPI event loop
+        def fetch_live_stream():
+            with urllib.request.urlopen(search_url) as response:
+                return json.loads(response.read().decode())
+        
+        data = await asyncio.to_thread(fetch_live_stream)
+        
+        if "items" in data and len(data["items"]) > 0:
+            video_id = data["items"][0]["id"]["videoId"]
+            print(f"[PANIC BUTTON SUCCESS] Target acquired: {video_id}. Deploying bot...")
+            DETECTED_VIDEOS.add(video_id)
+            return RedirectResponse(url="/?success=bot_deployed", status_code=303)
+        else:
+            print(f"[PANIC BUTTON FAILED] Scanned channel but no active live stream was found.")
+            return RedirectResponse(url="/?error=not_live", status_code=303)
+            
+    except Exception as e:
+        print(f"[PANIC BUTTON ERROR] API crash: {e}")
+        return RedirectResponse(url="/?error=api_crash", status_code=303)
 
 
 # ---------------------------------------------------------
@@ -379,9 +427,12 @@ async def process_chat_message(
     words_original = message_text.strip().split()
     words_lower = [w.lower() for w in words_original]
 
-    # ---------------------------------------------------------
-    # 3. CHAT MANAGEMENT PARSING (MODS & DEVS ONLY)
-    # ---------------------------------------------------------
+    # --- AFK UPDATE FOR QUEUE TRACKING ---
+    db_user = db.query(User).filter(User.id == user_id).first()
+    if db_user:
+        db_user.last_seen = datetime.now(timezone.utc)
+        db.commit()
+
     # Authority check: Devs or users with high trust score act as moderators
     is_authorized_mod = (
         clean_username in DEV_YOUTUBE_IDS or 
@@ -390,150 +441,217 @@ async def process_chat_message(
 
     valid_mgmt_cmds = {"!adduk", "!edituk", "!deluk", "!reptuk"}
 
-    if words_lower and words_lower[0] in valid_mgmt_cmds and is_authorized_mod:
-        action = words_lower[0]
-        
-        # --- COMMAND 1: !adduk [trigger] [response text] ---
-        if action == "!adduk" and len(words_original) >= 3:
-            new_trigger = words_lower[1]
-            if not new_trigger.startswith("!"):
-                new_trigger = f"!{new_trigger}"
-            
-            # Using original words array to preserve capitalization in the response
-            response_content = " ".join(words_original[2:])
-            
-            # Check if command already exists to prevent accidental overwrites
-            existing_cmd = db.query(CustomCommand).filter(
-                CustomCommand.streamer_id == streamer_id,
-                CustomCommand.command_trigger == new_trigger
-            ).first()
-            
-            if existing_cmd:
-                return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ Command {new_trigger} already exists. Use !edituk to change it."}
-            
-            new_cmd = CustomCommand(
-                streamer_id=streamer_id,
-                command_trigger=new_trigger,
-                response_text=response_content
-            )
-            db.add(new_cmd)
-            db.commit()
-            return {"verdict": "Safe", "action": "Reply", "bot_response": f"✅ Command {new_trigger} has been successfully added!"}
+    # ---------------------------------------------------------
+    # 3. CHAT MANAGEMENT & GAMES PARSING
+    # ---------------------------------------------------------
+    if words_lower:
+        cmd = words_lower[0]
 
-        # --- COMMAND 2: !edituk [trigger] [new response text] ---
-        elif action == "!edituk" and len(words_original) >= 3:
-            target_trigger = words_lower[1]
-            if not target_trigger.startswith("!"):
-                target_trigger = f"!{target_trigger}"
-            
-            # Preserve casing for response text
-            response_content = " ".join(words_original[2:])
-            
-            existing_cmd = db.query(CustomCommand).filter(
-                CustomCommand.streamer_id == streamer_id,
-                CustomCommand.command_trigger == target_trigger
-            ).first()
-            
-            if existing_cmd:
-                existing_cmd.response_text = response_content
-                db.commit()
-                return {"verdict": "Safe", "action": "Reply", "bot_response": f"✅ Command {target_trigger} has been successfully updated!"}
-            else:
-                return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ Command {target_trigger} not found. Use !adduk to create it."}
-
-        # --- COMMAND 3: !deluk [trigger] ---
-        elif action == "!deluk" and len(words_original) == 2:
-            target_trigger = words_lower[1]
-            if not target_trigger.startswith("!"):
-                target_trigger = f"!{target_trigger}"
-                
-            existing_cmd = db.query(CustomCommand).filter(
-                CustomCommand.streamer_id == streamer_id,
-                CustomCommand.command_trigger == target_trigger
-            ).first()
-            
-            if existing_cmd:
-                db.delete(existing_cmd)
-                db.commit()
-                return {"verdict": "Safe", "action": "Reply", "bot_response": f"🗑️ Command {target_trigger} deleted successfully."}
-            else:
-                return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ Command {target_trigger} not found."}
-
-        # --- COMMAND 4: !reptuk [trigger] [interval_in_minutes] ---
-        elif action == "!reptuk" and len(words_original) == 3:
-            target_trigger = words_lower[1]
-            if not target_trigger.startswith("!"):
-                target_trigger = f"!{target_trigger}"
-                
+        # --- ECONOMY MINI-GAMES: !coinflip [amount] [heads/tails] ---
+        if cmd == "!coinflip" and len(words_lower) == 3:
             try:
-                minutes = int(words_original[2])
-            except ValueError:
-                return {"verdict": "Safe", "action": "Reply", "bot_response": "❌ Invalid interval. Usage: !reptuk !trigger 15"}
+                bet = int(words_lower[1])
+                choice = words_lower[2]
                 
-            cmd_to_loop = db.query(CustomCommand).filter(
-                CustomCommand.streamer_id == streamer_id,
-                CustomCommand.command_trigger == target_trigger
+                if choice not in ["heads", "tails"]:
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": "❌ Use: !coinflip [amount] heads/tails"}
+                    
+                user_coin = db.query(Coin).filter(Coin.user_id == user_id, Coin.streamer_id == streamer_id).first()
+                if not user_coin or user_coin.balance < bet or bet <= 0:
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ You don't have enough coins for that bet, {username}!"}
+                    
+                result = random.choice(["heads", "tails"])
+                if result == choice:
+                    user_coin.balance += bet
+                    db.commit()
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": f"🎉 It's {result}! You won {bet} coins, {username}! (Balance: {user_coin.balance})"}
+                else:
+                    user_coin.balance -= bet
+                    db.commit()
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": f"💀 It's {result}! You lost {bet} coins, {username}. (Balance: {user_coin.balance})"}
+            except ValueError:
+                pass
+
+        # --- QUEUE MANAGER: !join (Enter 1v1 list) ---
+        elif cmd == "!join":
+            existing = db.query(WaitingListEntry).filter(
+                WaitingListEntry.streamer_id == streamer_id, 
+                WaitingListEntry.user_id == user_id
             ).first()
+            if existing:
+                return {"verdict": "Safe", "action": "Reply", "bot_response": f"⚠️ You are already in the waiting list, {username}!"}
+                
+            new_entry = WaitingListEntry(streamer_id=streamer_id, user_id=user_id)
+            db.add(new_entry)
+            db.commit()
             
-            if cmd_to_loop:
-                cmd_to_loop.interval_minutes = minutes
+            queue_pos = db.query(WaitingListEntry).filter(WaitingListEntry.streamer_id == streamer_id).count()
+            return {"verdict": "Safe", "action": "Reply", "bot_response": f"✅ {username} joined the 1v1 queue! You are position #{queue_pos}. Keep chatting every 10 mins so you aren't marked AFK."}
+
+        # --- QUEUE MANAGER: !queue (Check line) ---
+        elif cmd == "!queue":
+            q = db.query(WaitingListEntry).filter(WaitingListEntry.streamer_id == streamer_id).order_by(WaitingListEntry.joined_at.asc()).limit(3).all()
+            if not q:
+                return {"verdict": "Safe", "action": "Reply", "bot_response": "The 1v1 queue is currently empty! Type !join to enter."}
+            
+            names = [entry.user.username for entry in q]
+            return {"verdict": "Safe", "action": "Reply", "bot_response": f"🎮 Next in line: 1. {names[0]} " + (" ".join([f"{i+2}. {n}" for i, n in enumerate(names[1:])]))}
+
+        # --- QUEUE MANAGER: !next (MOD ONLY: Pull next player) ---
+        elif cmd == "!next" and is_authorized_mod:
+            next_player = db.query(WaitingListEntry).filter(WaitingListEntry.streamer_id == streamer_id).order_by(WaitingListEntry.joined_at.asc()).first()
+            if not next_player:
+                return {"verdict": "Safe", "action": "Reply", "bot_response": "❌ The queue is empty."}
+                
+            db.delete(next_player)
+            db.commit()
+            return {"verdict": "Safe", "action": "Reply", "bot_response": f"🔥 It's your turn, {next_player.user.username}! Send a request now."}
+
+        # --- MODERATION COMMANDS ---
+        elif cmd in valid_mgmt_cmds and is_authorized_mod:
+            action = cmd
+            
+            # --- COMMAND 1: !adduk [trigger] [response text] ---
+            if action == "!adduk" and len(words_original) >= 3:
+                new_trigger = words_lower[1]
+                if not new_trigger.startswith("!"):
+                    new_trigger = f"!{new_trigger}"
+                
+                # Using original words array to preserve capitalization in the response
+                response_content = " ".join(words_original[2:])
+                
+                # Check if command already exists to prevent accidental overwrites
+                existing_cmd = db.query(CustomCommand).filter(
+                    CustomCommand.streamer_id == streamer_id,
+                    CustomCommand.command_trigger == new_trigger
+                ).first()
+                
+                if existing_cmd:
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ Command {new_trigger} already exists. Use !edituk to change it."}
+                
+                new_cmd = CustomCommand(
+                    streamer_id=streamer_id,
+                    command_trigger=new_trigger,
+                    response_text=response_content
+                )
+                db.add(new_cmd)
                 db.commit()
-                status_msg = f"🔄 {target_trigger} is now looping every {minutes} minutes." if minutes > 0 else f"🛑 {target_trigger} loop timer disabled."
-                return {"verdict": "Safe", "action": "Reply", "bot_response": status_msg}
-            else:
-                return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ Command {target_trigger} not found. Use !adduk first!"}
+                return {"verdict": "Safe", "action": "Reply", "bot_response": f"✅ Command {new_trigger} has been successfully added!"}
 
-    # ---------------------------------------------------------
-    # 4. CHAT COMMAND INTERCEPTOR (!clip & Custom Commands)
-    # ---------------------------------------------------------
-    if words_lower and words_lower[0] == "!clip":
-        # Log the clip request in the database
-        new_clip = ClipRecord(
-            streamer_id=streamer_id,
-            title="Viewer Chat Clip",
-            file_path="/static/clips/pending.mp4",
-            duration_seconds=60,
-            resolution="1080p",
-            trigger_source="Chat Command (!clip)"
-        )
-        db.add(new_clip)
-        db.commit()
+            # --- COMMAND 2: !edituk [trigger] [new response text] ---
+            elif action == "!edituk" and len(words_original) >= 3:
+                target_trigger = words_lower[1]
+                if not target_trigger.startswith("!"):
+                    target_trigger = f"!{target_trigger}"
+                
+                # Preserve casing for response text
+                response_content = " ".join(words_original[2:])
+                
+                existing_cmd = db.query(CustomCommand).filter(
+                    CustomCommand.streamer_id == streamer_id,
+                    CustomCommand.command_trigger == target_trigger
+                ).first()
+                
+                if existing_cmd:
+                    existing_cmd.response_text = response_content
+                    db.commit()
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": f"✅ Command {target_trigger} has been successfully updated!"}
+                else:
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ Command {target_trigger} not found. Use !adduk to create it."}
 
-        # Fire an instant WebSocket command to OBS to save the Replay Buffer
-        streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
-        if streamer and streamer.server_sync_code:
-            await overlay_manager.send_alert(
-                streamer.server_sync_code, 
-                {
-                    "type": "obs_save_replay_buffer", 
-                    "message": "Chat triggered a clip!",
-                    "clip_id": new_clip.id
-                }
+            # --- COMMAND 3: !deluk [trigger] ---
+            elif action == "!deluk" and len(words_original) == 2:
+                target_trigger = words_lower[1]
+                if not target_trigger.startswith("!"):
+                    target_trigger = f"!{target_trigger}"
+                    
+                existing_cmd = db.query(CustomCommand).filter(
+                    CustomCommand.streamer_id == streamer_id,
+                    CustomCommand.command_trigger == target_trigger
+                ).first()
+                
+                if existing_cmd:
+                    db.delete(existing_cmd)
+                    db.commit()
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": f"🗑️ Command {target_trigger} deleted successfully."}
+                else:
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ Command {target_trigger} not found."}
+
+            # --- COMMAND 4: !reptuk [trigger] [interval_in_minutes] ---
+            elif action == "!reptuk" and len(words_original) == 3:
+                target_trigger = words_lower[1]
+                if not target_trigger.startswith("!"):
+                    target_trigger = f"!{target_trigger}"
+                    
+                try:
+                    minutes = int(words_original[2])
+                except ValueError:
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": "❌ Invalid interval. Usage: !reptuk !trigger 15"}
+                    
+                cmd_to_loop = db.query(CustomCommand).filter(
+                    CustomCommand.streamer_id == streamer_id,
+                    CustomCommand.command_trigger == target_trigger
+                ).first()
+                
+                if cmd_to_loop:
+                    cmd_to_loop.interval_minutes = minutes
+                    db.commit()
+                    status_msg = f"🔄 {target_trigger} is now looping every {minutes} minutes." if minutes > 0 else f"🛑 {target_trigger} loop timer disabled."
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": status_msg}
+                else:
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": f"❌ Command {target_trigger} not found. Use !adduk first!"}
+
+        # ---------------------------------------------------------
+        # 4. CHAT COMMAND INTERCEPTOR (!clip & Custom Commands)
+        # ---------------------------------------------------------
+        elif cmd == "!clip":
+            # Log the clip request in the database
+            new_clip = ClipRecord(
+                streamer_id=streamer_id,
+                title="Viewer Chat Clip",
+                file_path="/static/clips/pending.mp4",
+                duration_seconds=60,
+                resolution="1080p",
+                trigger_source="Chat Command (!clip)"
             )
+            db.add(new_clip)
+            db.commit()
 
-        return {
-            "verdict": "Safe", 
-            "action": "Command Executed", 
-            "reason": "Stream clip triggered successfully via chat."
-        }
+            # Fire an instant WebSocket command to OBS to save the Replay Buffer
+            streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+            if streamer and streamer.server_sync_code:
+                await overlay_manager.send_alert(
+                    streamer.server_sync_code, 
+                    {
+                        "type": "obs_save_replay_buffer", 
+                        "message": "Chat triggered a clip!",
+                        "clip_id": new_clip.id
+                    }
+                )
 
-    # Dynamic Custom Commands (Standard user triggering existing commands)
-    if words_lower and words_lower[0].startswith("!"):
-        trigger = words_lower[0]
-        
-        custom_cmd = db.query(CustomCommand).filter(
-            CustomCommand.streamer_id == streamer_id,
-            CustomCommand.command_trigger == trigger,
-            CustomCommand.is_active == True
-        ).first()
-        
-        if custom_cmd:
             return {
                 "verdict": "Safe", 
-                "action": "Reply", 
-                "reason": "Custom command triggered.",
-                "bot_response": custom_cmd.response_text 
+                "action": "Command Executed", 
+                "reason": "Stream clip triggered successfully via chat."
             }
+
+        # Dynamic Custom Commands (Standard user triggering existing commands)
+        elif cmd.startswith("!"):
+            trigger = cmd
+            
+            custom_cmd = db.query(CustomCommand).filter(
+                CustomCommand.streamer_id == streamer_id,
+                CustomCommand.command_trigger == trigger,
+                CustomCommand.is_active == True
+            ).first()
+            
+            if custom_cmd:
+                return {
+                    "verdict": "Safe", 
+                    "action": "Reply", 
+                    "reason": "Custom command triggered.",
+                    "bot_response": custom_cmd.response_text 
+                }
 
     # ---------------------------------------------------------
     # 5. STANDARD AI MODERATION
