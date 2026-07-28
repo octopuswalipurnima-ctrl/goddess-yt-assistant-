@@ -60,6 +60,9 @@ class Streamer(Base):
     # --- CHAT MANAGEMENT EXTENSIONS ---
     custom_commands = relationship("CustomCommand", back_populates="streamer")
     vip_guests = relationship("VIPGuest", back_populates="streamer")
+    
+    # --- QUEUE MANAGER ---
+    waiting_list_entries = relationship("WaitingListEntry", back_populates="streamer")
 
 
 # --- The Viewer Table (Global Identity) ---
@@ -84,6 +87,9 @@ class User(Base):
     # --- STORE & MEMORY EXPANSIONS ---
     store_redemptions = relationship("StoreRedemption", back_populates="user")
     viewer_profiles = relationship("ViewerProfile", back_populates="user")
+    
+    # --- QUEUE MANAGER ---
+    waiting_list_entries = relationship("WaitingListEntry", back_populates="user")
 
 
 # --- Channel-Specific Stats (Multi-Tenant) ---
@@ -435,3 +441,20 @@ class CustomCommand(Base):
     last_triggered_at = Column(DateTime(timezone=True), nullable=True)
     
     streamer = relationship("Streamer", back_populates="custom_commands")
+
+# =========================================================================
+# --- QUEUE MANAGER EXTENSIONS ---
+# =========================================================================
+
+class WaitingListEntry(Base):
+    """Manages the 1v1 queue and AFK timers."""
+    __tablename__ = "waiting_list"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    
+    joined_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    user = relationship("User", back_populates="waiting_list_entries")
+    streamer = relationship("Streamer", back_populates="waiting_list_entries")

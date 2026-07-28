@@ -3,8 +3,8 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.database.connection import SessionLocal
-# Added CustomCommand, Streamer, and VIPGuest to support the new features
-from app.database.models import User, Coin, XP, CustomCommand, Streamer, VIPGuest
+# Added CustomCommand, Streamer, VIPGuest, and WaitingListEntry to support the new features
+from app.database.models import User, Coin, XP, CustomCommand, Streamer, VIPGuest, WaitingListEntry
 from app.ai.generator import AIBrain
 from app.services.websocket import overlay_manager
 
@@ -50,6 +50,30 @@ async def reset_vip_greetings():
     except Exception as e:
         db.rollback()
         print(f"[SCHEDULER ERROR] Resetting VIP greetings: {e}")
+    finally:
+        db.close()
+
+async def prune_afk_waiting_list():
+    """Sweeps the waiting list every 2 minutes. Drops users with no chat activity in 10 mins."""
+    db = SessionLocal()
+    try:
+        # Calculate the cutoff time (10 minutes ago)
+        afk_threshold = datetime.now(timezone.utc) - timedelta(minutes=10)
+        
+        # Find users in queue whose last_seen is older than the threshold
+        afk_entries = db.query(WaitingListEntry).join(User).filter(
+            User.last_seen < afk_threshold
+        ).all()
+        
+        for entry in afk_entries:
+            db.delete(entry)
+            
+        if afk_entries:
+            db.commit()
+            print(f"[QUEUE ENGINE] Purged {len(afk_entries)} AFK viewers from 1v1 waiting lists.")
+    except Exception as e:
+        db.rollback()
+        print(f"[SCHEDULER ERROR] AFK Pruning failed: {e}")
     finally:
         db.close()
 
@@ -112,6 +136,9 @@ def start_scheduler():
     # Run passive distribution every 5 minutes
     scheduler.add_job(award_passive_rewards, 'interval', minutes=5)
     
+    # Sweep AFK users from the 1v1 queue every 2 minutes
+    scheduler.add_job(prune_afk_waiting_list, 'interval', minutes=2)
+    
     # Run giveaway reminders on a random interval between 15 and 30 minutes
     random_interval = random.randint(15, 30)
     scheduler.add_job(trigger_ai_giveaway_reminder, 'interval', minutes=random_interval)
@@ -120,4 +147,4 @@ def start_scheduler():
     scheduler.add_job(reset_vip_greetings, 'cron', hour=3, minute=0)
     
     scheduler.start()
-    print("[SCHEDULER] Loyalty loops, VIP resets, and AI chronometers initialized successfully.")
+    print("[SCHEDULER] Loyalty loops, Queue Sweepers, VIP resets, and AI chronometers initialized successfully.")
