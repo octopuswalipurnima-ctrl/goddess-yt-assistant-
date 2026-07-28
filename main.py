@@ -191,10 +191,25 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
         data = await asyncio.to_thread(fetch_live_stream)
         
         if "items" in data and len(data["items"]) > 0:
-            video_id = data["items"][0]["id"]["videoId"]
-            print(f"[PANIC BUTTON SUCCESS] Target acquired: {video_id}. Deploying bot...")
-            DETECTED_VIDEOS.add(video_id)
-            return RedirectResponse(url="/?success=bot_deployed", status_code=303)
+            for item in data["items"]:
+                snippet = item.get("snippet", {})
+                channel_id = snippet.get("channelId")
+                channel_title = snippet.get("channelTitle", "")
+
+                if channel_id == streamer.youtube_channel_id or channel_title.lower() == streamer.channel_name.lower():
+                    video_id = item["id"]["videoId"]
+
+                    if channel_id and channel_id != streamer.youtube_channel_id:
+                        print(f"[PANIC BUTTON AUTO-HEAL] Updating channel ID for {streamer.channel_name} from {streamer.youtube_channel_id} to {channel_id}")
+                        streamer.youtube_channel_id = channel_id
+                        db.commit()
+
+                    print(f"[PANIC BUTTON SUCCESS] Target acquired: {video_id}. Deploying bot...")
+                    DETECTED_VIDEOS.add(video_id)
+                    return RedirectResponse(url="/?success=bot_deployed", status_code=303)
+
+            print(f"[PANIC BUTTON FAILED] Scanned YouTube but no matching active live stream was found for {streamer.channel_name}.")
+            return RedirectResponse(url="/?error=not_live", status_code=303)
         else:
             print(f"[PANIC BUTTON FAILED] Scanned YouTube but no active live stream was found for {streamer.channel_name}.")
             return RedirectResponse(url="/?error=not_live", status_code=303)
