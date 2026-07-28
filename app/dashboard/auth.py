@@ -22,8 +22,12 @@ oauth.register(
 
 @router.get("/login")
 async def login(request: Request):
-    # ProxyHeadersMiddleware in main.py will automatically ensure this is 'https' on Railway
+    # Dynamically build the URL based on the current environment
     redirect_uri = str(request.url_for('auth_callback'))
+    
+    # SECURITY OVERRIDE: Force HTTPS for the live Railway server
+    if "localhost" not in redirect_uri and "127.0.0.1" not in redirect_uri:
+        redirect_uri = redirect_uri.replace("http://", "https://")
         
     print(f"[AUTH ROUTE] Requesting login via: {redirect_uri}", flush=True)
     return await oauth.google.authorize_redirect(request, redirect_uri)
@@ -32,7 +36,8 @@ async def login(request: Request):
 async def auth_callback(request: Request, db: Session = Depends(get_db)):
     print(f"[AUTH DEBUG] Callback reached. Fetching access token...", flush=True)
     try:
-        # Removed the duplicate redirect_uri argument that was causing the crash!
+        # We rely on the ForceHTTPSMiddleware in main.py to handle the internal request scheme here
+        # so we DO NOT pass the redirect_uri argument here, preventing the TypeError crash.
         token = await oauth.google.authorize_access_token(request)
         print(f"[AUTH DEBUG] Token keys received: {list(token.keys())}", flush=True)
         
