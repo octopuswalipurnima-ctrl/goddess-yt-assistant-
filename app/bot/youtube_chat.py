@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
 from app.database.connection import SessionLocal
-from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer
+from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState
 from app.ai.generator import AIBrain
 from app.utils.config import Config
 from app.services.websocket import overlay_manager  # <-- NEW: OBS WebSocket Manager
@@ -498,7 +498,7 @@ class YouTubeChatMonitor:
                         is_guest = streamer is None
                         
                         if stream_key not in self.active_streams:
-                            self.active_streams[stream_key] = chat_id
+                            self.active_streams[stream_key] = {"chat_id": chat_id, "start_time": datetime.now(timezone.utc)}
                             self.stream_modes[stream_key] = "guest" if is_guest else "premium"
                             
                             mode_str = "🟡 GUEST" if is_guest else "🟢 PREMIUM"
@@ -512,12 +512,24 @@ class YouTubeChatMonitor:
                 
                 active_streamer_ids = list(self.active_streams.keys())
                 for streamer_key in active_streamer_ids:
-                    chat_id = self.active_streams[streamer_key]
+                    chat_info = self.active_streams[streamer_key]
+                    chat_id = chat_info["chat_id"] if isinstance(chat_info, dict) else chat_info
                     token = self.next_page_tokens.get(chat_id)
                     is_guest = self.stream_modes.get(streamer_key) == "guest"
                     
                     try:
+                        # API Cap Check
+                        sys_state = db.query(SystemState).first()
+                        if sys_state and sys_state.youtube_api_calls >= sys_state.youtube_api_cap:
+                            print(f"[API CAP] YouTube API cap reached ({sys_state.youtube_api_calls}/{sys_state.youtube_api_cap}). Skipping fetch.")
+                            continue
+
                         response = self.youtube.liveChatMessages().list(liveChatId=chat_id, part="snippet,authorDetails", pageToken=token).execute()
+
+                        if sys_state:
+                            sys_state.youtube_api_calls += 1
+                            db.commit()
+
                         self.next_page_tokens[chat_id] = response.get("nextPageToken")
                         
                         for item in response.get("items", []):

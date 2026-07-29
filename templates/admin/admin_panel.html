@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Goddess AI | Admin Panel</title>
+    <style>
+        body {
+            background-color: #121214;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            width: 100%;
+            max-width: 900px;
+            padding: 40px 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            color: #ef4444;
+        }
+        .panel {
+            background: #1e1e24;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border: 1px solid #333;
+        }
+        .panel h3 {
+            margin-top: 0;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+            color: #e5e7eb;
+        }
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .stat-box {
+            background: #18181b;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #27272a;
+            text-align: center;
+        }
+        .stat-label {
+            font-size: 0.8em;
+            color: #71717a;
+            text-transform: uppercase;
+        }
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+        .btn-submit {
+            background: #ef4444;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: opacity 0.2s;
+        }
+        .btn-submit:hover {
+            opacity: 0.9;
+        }
+        table {
+            width: 100%;
+            text-align: left;
+            border-collapse: collapse;
+            background: #18181b;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px;
+        }
+        th {
+            background: #27272a;
+            color: #e5e7eb;
+            border-bottom: 1px solid #333;
+        }
+        tr {
+            border-bottom: 1px solid #27272a;
+        }
+        input[type="number"] {
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #444;
+            background: #2a2a32;
+            color: white;
+            width: 100px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛡️ Admin Command Center</h1>
+            <p style="color: #9ca3af;">System oversight and API cost management.</p>
+        </div>
+
+        <!-- API Cost Meters & Limits -->
+        <div class="panel" style="border-left: 4px solid #ef4444;">
+            <h3 style="color: #ef4444;">💰 API Cost Meters & Caps</h3>
+
+            <div class="stat-grid" style="margin-bottom: 20px;">
+                <div class="stat-box">
+                    <div class="stat-label">YouTube API Calls</div>
+                    <div class="stat-value" style="color: #3b82f6;">{{ state.youtube_api_calls }} / {{ state.youtube_api_cap }}</div>
+                    {% if state.youtube_api_calls >= state.youtube_api_cap %}
+                    <div style="color: #ef4444; font-size: 0.8em; margin-top: 5px; font-weight: bold;">CAP EXCEEDED</div>
+                    {% endif %}
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Gemini API Calls</div>
+                    <div class="stat-value" style="color: #a855f7;">{{ state.gemini_api_calls }} / {{ state.gemini_api_cap }}</div>
+                    {% if state.gemini_api_calls >= state.gemini_api_cap %}
+                    <div style="color: #ef4444; font-size: 0.8em; margin-top: 5px; font-weight: bold;">CAP EXCEEDED</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <form action="/admin/update-caps" method="POST" style="display: flex; gap: 15px; align-items: center; background: #18181b; padding: 15px; border-radius: 8px; border: 1px solid #27272a;">
+                <div style="display: flex; flex-direction: column; gap: 5px;">
+                    <label style="font-size: 0.9em; color: #9ca3af;">YouTube Cap:</label>
+                    <input type="number" name="youtube_cap" value="{{ state.youtube_api_cap }}" required>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 5px;">
+                    <label style="font-size: 0.9em; color: #9ca3af;">Gemini Cap:</label>
+                    <input type="number" name="gemini_cap" value="{{ state.gemini_api_cap }}" required>
+                </div>
+                <button type="submit" class="btn-submit" style="margin-top: 20px;">Update Caps</button>
+            </form>
+        </div>
+
+        <!-- Active Bots Panel -->
+        <div class="panel" style="border-left: 4px solid #10b981;">
+            <h3 style="color: #10b981;">🤖 Active Bots Running</h3>
+
+            <table>
+                <tr>
+                    <th>Channel / Streamer</th>
+                    <th>Live Chat ID</th>
+                    <th>Uptime</th>
+                </tr>
+                {% if active_streams %}
+                    {% for stream in active_streams %}
+                    <tr>
+                        <td style="color: #10b981; font-weight: bold;">{{ stream.name }}</td>
+                        <td style="font-family: monospace; color: #9ca3af; font-size: 0.9em;">{{ stream.chat_id }}</td>
+                        <td>{{ stream.uptime }}</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="3" style="text-align: center; color: #71717a; font-style: italic;">No bots are currently active.</td>
+                    </tr>
+                {% endif %}
+            </table>
+        </div>
+
+        <!-- Registered Streamers -->
+        <div class="panel" style="border-left: 4px solid #3b82f6;">
+            <h3 style="color: #3b82f6;">📺 Registered Streamers</h3>
+
+            <table>
+                <tr>
+                    <th>ID</th>
+                    <th>Channel Name</th>
+                    <th>Joined At</th>
+                    <th>Status</th>
+                </tr>
+                {% for streamer in streamers %}
+                <tr>
+                    <td>{{ streamer.id }}</td>
+                    <td style="font-weight: bold;">{{ streamer.channel_name }}</td>
+                    <td style="color: #9ca3af; font-size: 0.9em;">{{ streamer.joined_at.strftime('%Y-%m-%d %H:%M') if streamer.joined_at else 'Unknown' }}</td>
+                    <td>
+                        {% if streamer.is_active %}
+                            <span style="color: #10b981;">Active</span>
+                        {% else %}
+                            <span style="color: #ef4444;">Inactive</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="/" style="color: #9ca3af; text-decoration: none;">&larr; Back to Main Dashboard</a>
+        </div>
+    </div>
+</body>
+</html>

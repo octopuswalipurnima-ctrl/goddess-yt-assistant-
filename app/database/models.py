@@ -458,3 +458,11 @@ class WaitingListEntry(Base):
     
     user = relationship("User", back_populates="waiting_list_entries")
     streamer = relationship("Streamer", back_populates="waiting_list_entries")
+class SystemState(Base):
+    __tablename__ = "system_state"
+
+    id = Column(Integer, primary_key=True, index=True)
+    youtube_api_calls = Column(Integer, default=0)
+    gemini_api_calls = Column(Integer, default=0)
+    youtube_api_cap = Column(Integer, default=10000)
+    gemini_api_cap = Column(Integer, default=1000)
