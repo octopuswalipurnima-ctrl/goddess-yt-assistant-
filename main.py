@@ -10,9 +10,11 @@ import urllib.error
 import uvicorn
 import logging
 import uuid
+import secrets
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
-from fastapi import FastAPI, Request, Depends, Form, WebSocket, WebSocketDisconnect, Response
+from fastapi import FastAPI, Request, Depends, Form, WebSocket, WebSocketDisconnect, Response, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -237,44 +239,41 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
 
 
 # ---------------------------------------------------------
-# ADMIN CONTROL PANEL ROUTES
+# ADMIN CONTROL PANEL ROUTES (PROTECTED BY ID & PASSWORD)
 # ---------------------------------------------------------
-# HARDCODED DEVELOPER CHANNELS (God Mode active for all layers)
-DEV_YOUTUBE_IDS = {"@uk_hi_kahda", "@goddessislive", "@nawaboislive"}
+security = HTTPBasic()
+
+def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
+    """Verifies the hardcoded admin credentials using secure comparison."""
+    # CHANGE YOUR ADMIN ID AND PASSWORD HERE
+    correct_username = secrets.compare_digest(credentials.username, "admin")
+    correct_password = secrets.compare_digest(credentials.password, "goddess2026")
+    
+    if not (correct_username and correct_password):
+        logger.warning(f"[ADMIN SECURITY] Failed login attempt with username: {credentials.username}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Admin Credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 @app.get("/admin")
-async def serve_admin_panel(request: Request, db: Session = Depends(get_db)):
+async def serve_admin_panel(request: Request, admin_user: str = Depends(verify_admin), db: Session = Depends(get_db)):
     try:
-        streamer_id = request.session.get("streamer_id")
-        if not streamer_id:
-            logger.warning("[ADMIN] Unauthenticated session attempted to access /admin")
-            return RedirectResponse(url="/", status_code=303)
-
-        current_streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
-        if not current_streamer:
-            return RedirectResponse(url="/", status_code=303)
-
-        clean_name = current_streamer.channel_name.strip().lower()
-        if not clean_name.startswith("@"):
-            clean_name = f"@{clean_name}"
-
-        if clean_name not in DEV_YOUTUBE_IDS:
-            logger.warning(f"[ADMIN] Unauthorized access attempt by channel: {current_streamer.channel_name}")
-            return RedirectResponse(url="/?error=unauthorized_admin", status_code=303)
-
         total_users = db.query(User).count()
         total_streamers = db.query(Streamer).count()
         all_streamers = db.query(Streamer).all()
         
         active_video_ids = list(DETECTED_VIDEOS)
 
-        logger.info(f"[ADMIN] Admin panel rendered for {current_streamer.channel_name}")
+        logger.info(f"[ADMIN] Admin panel successfully accessed by {admin_user}")
         return templates.TemplateResponse(
             request=request,
             name="admin.html",
             context={
                 "request": request,
-                "admin_name": current_streamer.channel_name,
+                "admin_name": admin_user.capitalize(),
                 "total_users": total_users,
                 "total_streamers": total_streamers,
                 "all_streamers": all_streamers,
@@ -290,13 +289,10 @@ async def admin_force_join(
     request: Request,
     target_streamer_id: int = Form(...),
     stream_url: str = Form(...),
+    admin_user: str = Depends(verify_admin),
     db: Session = Depends(get_db)
 ):
     try:
-        streamer_id = request.session.get("streamer_id")
-        if not streamer_id:
-            return RedirectResponse(url="/", status_code=303)
-
         yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/live\/)([a-zA-Z0-9_-]{11})"
         match = re.search(yt_regex, stream_url.strip())
         video_id = match.group(1) if match else stream_url.strip()
@@ -306,7 +302,7 @@ async def admin_force_join(
             return RedirectResponse(url="/admin?error=invalid_streamer", status_code=303)
 
         DETECTED_VIDEOS.add(video_id)
-        logger.info(f"[ADMIN FORCE JOIN] Deployed bot to stream '{video_id}' for streamer '{target_streamer.channel_name}' (ID: {target_streamer.id})")
+        logger.info(f"[ADMIN FORCE JOIN] {admin_user} deployed bot to stream '{video_id}' for streamer '{target_streamer.channel_name}'")
 
         return RedirectResponse(url="/admin?success=bot_deployed", status_code=303)
     except Exception as e:
@@ -317,12 +313,13 @@ async def admin_force_join(
 async def admin_disconnect_stream(
     request: Request,
     video_id: str = Form(...),
+    admin_user: str = Depends(verify_admin),
     db: Session = Depends(get_db)
 ):
     try:
         if video_id in DETECTED_VIDEOS:
             DETECTED_VIDEOS.remove(video_id)
-            logger.info(f"[ADMIN DISCONNECT] Disconnected bot from stream video ID: {video_id}")
+            logger.info(f"[ADMIN DISCONNECT] {admin_user} disconnected bot from stream: {video_id}")
         return RedirectResponse(url="/admin?success=stream_disconnected", status_code=303)
     except Exception as e:
         logger.exception(f"[ADMIN DISCONNECT ERROR] Failed disconnecting stream {video_id}: {e}")
@@ -348,7 +345,6 @@ async def receive_youtube_webhook(request: Request):
         xml_data = await request.body()
         root = ET.fromstring(xml_data)
 
-        # XML Namespaces used by YouTube's Atom feeds
         namespaces = {
             'atom': 'http://www.w3.org/2005/Atom',
             'yt': 'http://www.youtube.com/xml/schemas/2015'
@@ -360,11 +356,8 @@ async def receive_youtube_webhook(request: Request):
             if video_id_element is not None:
                 video_id = video_id_element.text
                 logger.info(f"[WEBSUB NOTIFICATION] Target stream detected! Video ID: {video_id}")
-                
-                # Instantly deploy the bot to this new live stream
                 DETECTED_VIDEOS.add(video_id)
 
-        # You MUST return 204 No Content so YouTube knows you received it
         return Response(status_code=204) 
     except Exception as e:
         logger.exception(f"[WEBSUB ERROR] Failed to parse payload: {e}")
@@ -576,6 +569,7 @@ async def update_goal(request: Request, goal_id: int = Form(...), amount: int = 
 # ---------------------------------------------------------
 # AI MODERATION ENDPOINTS
 # ---------------------------------------------------------
+DEV_YOUTUBE_IDS = {"@uk_hi_kahda", "@goddessislive", "@nawaboislive"}
 
 @app.post("/api/moderation/process-message")
 async def process_chat_message(
