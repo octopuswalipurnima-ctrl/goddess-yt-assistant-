@@ -10,8 +10,9 @@ import urllib.error
 import uvicorn
 import logging
 import uuid
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
-from fastapi import FastAPI, Request, Depends, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Depends, Form, WebSocket, WebSocketDisconnect, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -233,6 +234,48 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
     except Exception as e:
         logger.exception(f"[SESSION:{session_id}] [PANIC BUTTON CRITICAL ERROR] Execution breakdown: {e}")
         return RedirectResponse(url="/?error=api_crash", status_code=303)
+
+
+# ---------------------------------------------------------
+# NEW: YOUTUBE WEBSUB (PUBSUBHUBBUB) NOTIFICATION ENDPOINTS
+# ---------------------------------------------------------
+@app.get("/api/youtube-webhook")
+async def verify_youtube_webhook(request: Request):
+    """Step 1: YouTube sends a GET request to verify the endpoint is real."""
+    challenge = request.query_params.get("hub.challenge")
+    if challenge:
+        logger.info(f"[WEBSUB] Verification challenge received and accepted.")
+        return Response(content=challenge, media_type="text/plain")
+    return Response(status_code=400)
+
+@app.post("/api/youtube-webhook")
+async def receive_youtube_webhook(request: Request):
+    """Step 2: YouTube sends a POST request with XML when a stream starts."""
+    try:
+        xml_data = await request.body()
+        root = ET.fromstring(xml_data)
+
+        # XML Namespaces used by YouTube's Atom feeds
+        namespaces = {
+            'atom': 'http://www.w3.org/2005/Atom',
+            'yt': 'http://www.youtube.com/xml/schemas/2015'
+        }
+
+        entry = root.find('atom:entry', namespaces)
+        if entry is not None:
+            video_id_element = entry.find('yt:videoId', namespaces)
+            if video_id_element is not None:
+                video_id = video_id_element.text
+                logger.info(f"[WEBSUB NOTIFICATION] Target stream detected! Video ID: {video_id}")
+                
+                # Instantly deploy the bot to this new live stream
+                DETECTED_VIDEOS.add(video_id)
+
+        # You MUST return 204 No Content so YouTube knows you received it
+        return Response(status_code=204) 
+    except Exception as e:
+        logger.exception(f"[WEBSUB ERROR] Failed to parse payload: {e}")
+        return Response(status_code=200)
 
 
 # ---------------------------------------------------------
