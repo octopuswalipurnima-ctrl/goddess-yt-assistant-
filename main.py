@@ -31,8 +31,6 @@ from app.bot.discord_bot import start_discord_bot
 from app.services.scheduler import start_scheduler, start_timed_command_loop
 from app.services.websocket import overlay_manager
 from app.api.creator_economy import router as economy_router
-from app.dashboard.admin import router as admin_router
-from main_test_route import router as mock_router
 from app.utils.config import Config
 
 # ---------------------------------------------------------
@@ -236,49 +234,6 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
         logger.exception(f"[SESSION:{session_id}] [PANIC BUTTON CRITICAL ERROR] Execution breakdown: {e}")
         return RedirectResponse(url="/?error=api_crash", status_code=303)
 
-
-
-@app.post("/api/bot/join")
-async def bot_join_channel(request: Request, db: Session = Depends(get_db)):
-    """Deploys the bot to the creator's channel as a moderator."""
-    streamer_id = request.session.get("streamer_id")
-    if not streamer_id:
-        return RedirectResponse(url="/", status_code=303)
-
-    streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
-    if not streamer:
-        return RedirectResponse(url="/?error=invalid_channel", status_code=303)
-
-    api_key = os.environ.get("YOUTUBE_API_KEY")
-    if not api_key:
-        return RedirectResponse(url="/?error=missing_api_key", status_code=303)
-
-    safe_channel_name = urllib.parse.quote(streamer.channel_name)
-    search_url = (
-        f"https://www.googleapis.com/youtube/v3/search?"
-        f"part=snippet&q={safe_channel_name}&eventType=live&type=video&key={api_key}"
-    )
-
-    try:
-        def fetch_live_stream():
-            try:
-                with urllib.request.urlopen(search_url) as response:
-                    return json.loads(response.read().decode())
-            except urllib.error.HTTPError as e:
-                raise Exception(f"Google API Rejected Request: {e.code}")
-
-        data = await asyncio.to_thread(fetch_live_stream)
-
-        if "items" in data and len(data["items"]) > 0:
-            video_id = data["items"][0]["id"]["videoId"]
-            DETECTED_VIDEOS.add(video_id)
-            return RedirectResponse(url="/?success=join_success", status_code=303)
-        else:
-            return RedirectResponse(url="/?error=join_not_live", status_code=303)
-
-    except Exception as e:
-        print(f"[/api/bot/join ERROR] {e}")
-        return RedirectResponse(url="/?error=api_crash", status_code=303)
 
 # ---------------------------------------------------------
 # OBS WEBSOCKET & WIDGET ROUTES
@@ -875,8 +830,6 @@ async def delete_vip_guest(request: Request, vip_id: int = Form(...), db: Sessio
 app.include_router(dashboard_router)
 app.include_router(auth_router)
 app.include_router(economy_router)
-app.include_router(admin_router)
-app.include_router(mock_router)
 
 
 # ---------------------------------------------------------
@@ -886,7 +839,6 @@ running_tasks = []
 
 @app.on_event("startup")
 async def startup_event():
-<<<<<<< HEAD
     try:
         logger.info("[STARTUP] Initializing Goddess Stream Manager application engines...")
         init_db()
@@ -908,24 +860,6 @@ async def startup_event():
     except Exception as e:
         logger.exception(f"[STARTUP ERROR] Critical failure during application startup: {e}")
 
-=======
-    print("[STARTUP] Initializing systems...")
-    init_db()
-    start_scheduler()
-    
-    yt_monitor = YouTubeChatMonitor()
-    app.state.yt_monitor = yt_monitor
-    
-    task1 = asyncio.create_task(yt_monitor.run())
-    task2 = asyncio.create_task(start_discord_bot())
-    task3 = asyncio.create_task(start_timed_command_loop())
-    
-    running_tasks.append(task1)
-    running_tasks.append(task2)
-    running_tasks.append(task3)
-    
-    print("[STARTUP] Web Admin Dashboard, YouTube Engine, and Discord Bot are active!")
->>>>>>> ce3c4fa8f4d4b7265acff43738e388ac935d0a6e
 
 if __name__ == "__main__":
     try:
