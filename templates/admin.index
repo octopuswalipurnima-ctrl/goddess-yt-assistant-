@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Goddess AI - Super Admin Panel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #0f111a; color: #e1e6f0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .card { background-color: #181b29; border: 1px solid #2a2f45; border-radius: 12px; }
+        .stat-card { border-left: 4px solid #7289da; }
+        .badge-live { background-color: #ff4757; color: white; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .btn-goddess { background: linear-gradient(135deg, #6c5ce7, #a29bfe); color: white; border: none; }
+        .btn-goddess:hover { background: linear-gradient(135deg, #5a4bcf, #8c7ae6); color: white; }
+    </style>
+</head>
+<body class="p-4">
+
+    <div class="container-fluid">
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="fw-bold text-white mb-0">👑 Goddess AI Admin Command Center</h1>
+                <p class="text-secondary">Logged in as Administrator: <strong>{{ admin_name }}</strong></p>
+            </div>
+            <a href="/" class="btn btn-outline-light">Return to Dashboard</a>
+        </div>
+
+        <!-- System Overview Stats -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card p-3 stat-card">
+                    <span class="text-secondary small fw-bold text-uppercase">Total Registered Streamers</span>
+                    <h2 class="fw-bold text-white mb-0 mt-2">{{ total_streamers }}</h2>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card p-3 stat-card" style="border-left-color: #00b894;">
+                    <span class="text-secondary small fw-bold text-uppercase">Total Logged Viewers / Accounts</span>
+                    <h2 class="fw-bold text-white mb-0 mt-2">{{ total_users }}</h2>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card p-3 stat-card" style="border-left-color: #ff4757;">
+                    <span class="text-secondary small fw-bold text-uppercase">Active Monitored Streams</span>
+                    <h2 class="fw-bold text-white mb-0 mt-2">
+                        {{ active_video_ids | length }} 
+                        {% if active_video_ids | length > 0 %}
+                            <span class="badge badge-live fs-6 ms-2">LIVE</span>
+                        {% endif %}
+                    </h2>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <!-- Force Join Control Panel -->
+            <div class="col-lg-6">
+                <div class="card p-4 h-100">
+                    <h4 class="fw-bold mb-3 text-white">🚀 Force-Deploy Bot into Any Stream</h4>
+                    <p class="text-secondary small">Select a streamer profile to load their complete feature set (Custom Commands, VIP Greetings, Economy) and attach it to any active YouTube stream URL.</p>
+                    
+                    <form action="/api/admin/force-join" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label text-light fw-bold">1. Select Target Streamer Profile</label>
+                            <select name="target_streamer_id" class="form-select bg-dark text-white border-secondary" required>
+                                <option value="" disabled selected>-- Choose Streamer Context --</option>
+                                {% for s in all_streamers %}
+                                    <option value="{{ s.id }}">{{ s.channel_name }} (ID: {{ s.id }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label text-light fw-bold">2. Target YouTube Live Stream URL / Video ID</label>
+                            <input type="text" name="stream_url" class="form-input bg-dark text-white border-secondary form-control" placeholder="https://www.youtube.com/watch?v=... or Video ID" required>
+                        </div>
+
+                        <button type="submit" class="btn btn-goddess w-100 fw-bold py-2 mt-2">
+                            Deploy Bot with Full Features
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Active Streams & Selector -->
+            <div class="col-lg-6">
+                <div class="card p-4 h-100">
+                    <h4 class="fw-bold mb-3 text-white">📡 Currently Active Stream Channels</h4>
+                    
+                    {% if active_video_ids %}
+                        <div class="list-group">
+                            {% for vid in active_video_ids %}
+                                <div class="list-group-item bg-dark text-white border-secondary d-flex justify-content-between align-items-center mb-2 rounded">
+                                    <div>
+                                        <span class="badge badge-live me-2">ACTIVE</span>
+                                        <strong>Video ID:</strong> <code>{{ vid }}</code>
+                                    </div>
+                                    <div>
+                                        <a href="https://youtube.com/watch?v={{ vid }}" target="_blank" class="btn btn-sm btn-outline-info me-2">Watch Stream</a>
+                                        <form action="/api/admin/disconnect-stream" method="POST" class="d-inline">
+                                            <input type="hidden" name="video_id" value="{{ vid }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">Disconnect</button>
+                                        </form>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="alert alert-dark border-secondary text-secondary mb-0 text-center py-4">
+                            No active stream connections detected right now. Use the panel on the left to force-join a stream.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+</html>

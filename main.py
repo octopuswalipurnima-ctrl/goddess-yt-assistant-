@@ -29,7 +29,7 @@ from app.dashboard.auth import router as auth_router
 from app.dashboard.routes import router as dashboard_router
 from app.bot.youtube_chat import YouTubeChatMonitor, DETECTED_VIDEOS
 from app.bot.discord_bot import start_discord_bot
-from app.services.scheduler import start_scheduler, start_timed_command_loop
+from app.services.scheduler import start_scheduler, start_timed_command_loop, websub_renewal_loop
 from app.services.websocket import overlay_manager
 from app.api.creator_economy import router as economy_router
 from app.utils.config import Config
@@ -237,6 +237,99 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
 
 
 # ---------------------------------------------------------
+# ADMIN CONTROL PANEL ROUTES
+# ---------------------------------------------------------
+# HARDCODED DEVELOPER CHANNELS (God Mode active for all layers)
+DEV_YOUTUBE_IDS = {"@uk_hi_kahda", "@goddessislive", "@nawaboislive"}
+
+@app.get("/admin")
+async def serve_admin_panel(request: Request, db: Session = Depends(get_db)):
+    try:
+        streamer_id = request.session.get("streamer_id")
+        if not streamer_id:
+            logger.warning("[ADMIN] Unauthenticated session attempted to access /admin")
+            return RedirectResponse(url="/", status_code=303)
+
+        current_streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+        if not current_streamer:
+            return RedirectResponse(url="/", status_code=303)
+
+        clean_name = current_streamer.channel_name.strip().lower()
+        if not clean_name.startswith("@"):
+            clean_name = f"@{clean_name}"
+
+        if clean_name not in DEV_YOUTUBE_IDS:
+            logger.warning(f"[ADMIN] Unauthorized access attempt by channel: {current_streamer.channel_name}")
+            return RedirectResponse(url="/?error=unauthorized_admin", status_code=303)
+
+        total_users = db.query(User).count()
+        total_streamers = db.query(Streamer).count()
+        all_streamers = db.query(Streamer).all()
+        
+        active_video_ids = list(DETECTED_VIDEOS)
+
+        logger.info(f"[ADMIN] Admin panel rendered for {current_streamer.channel_name}")
+        return templates.TemplateResponse(
+            request=request,
+            name="admin.html",
+            context={
+                "request": request,
+                "admin_name": current_streamer.channel_name,
+                "total_users": total_users,
+                "total_streamers": total_streamers,
+                "all_streamers": all_streamers,
+                "active_video_ids": active_video_ids
+            }
+        )
+    except Exception as e:
+        logger.exception(f"[ADMIN ERROR] Failed to render admin panel: {e}")
+        return RedirectResponse(url="/", status_code=303)
+
+@app.post("/api/admin/force-join")
+async def admin_force_join(
+    request: Request,
+    target_streamer_id: int = Form(...),
+    stream_url: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    try:
+        streamer_id = request.session.get("streamer_id")
+        if not streamer_id:
+            return RedirectResponse(url="/", status_code=303)
+
+        yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/live\/)([a-zA-Z0-9_-]{11})"
+        match = re.search(yt_regex, stream_url.strip())
+        video_id = match.group(1) if match else stream_url.strip()
+
+        target_streamer = db.query(Streamer).filter(Streamer.id == target_streamer_id).first()
+        if not target_streamer:
+            return RedirectResponse(url="/admin?error=invalid_streamer", status_code=303)
+
+        DETECTED_VIDEOS.add(video_id)
+        logger.info(f"[ADMIN FORCE JOIN] Deployed bot to stream '{video_id}' for streamer '{target_streamer.channel_name}' (ID: {target_streamer.id})")
+
+        return RedirectResponse(url="/admin?success=bot_deployed", status_code=303)
+    except Exception as e:
+        logger.exception(f"[ADMIN FORCE JOIN ERROR] Failed to deploy bot: {e}")
+        return RedirectResponse(url="/admin?error=deploy_failed", status_code=303)
+
+@app.post("/api/admin/disconnect-stream")
+async def admin_disconnect_stream(
+    request: Request,
+    video_id: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    try:
+        if video_id in DETECTED_VIDEOS:
+            DETECTED_VIDEOS.remove(video_id)
+            logger.info(f"[ADMIN DISCONNECT] Disconnected bot from stream video ID: {video_id}")
+        return RedirectResponse(url="/admin?success=stream_disconnected", status_code=303)
+    except Exception as e:
+        logger.exception(f"[ADMIN DISCONNECT ERROR] Failed disconnecting stream {video_id}: {e}")
+        return RedirectResponse(url="/admin", status_code=303)
+
+
+# ---------------------------------------------------------
 # NEW: YOUTUBE WEBSUB (PUBSUBHUBBUB) NOTIFICATION ENDPOINTS
 # ---------------------------------------------------------
 @app.get("/api/youtube-webhook")
@@ -393,7 +486,7 @@ async def upload_custom_widget(
             return RedirectResponse(url="/", status_code=303)
 
         channel_name = streamer.channel_name.lower()
-        is_dev = "sarthak" in channel_name or "goddess" in channel_name
+        is_dev = "sarthak" in channel_name or "goddess" in channel_name or "nawabo" in channel_name
 
         if is_dev:
             logger.info(f"[CUSTOM WIDGET] Developer bypass authorized for {streamer.channel_name}.")
@@ -424,7 +517,7 @@ async def save_alert_layout(request: Request, layout_config: str = Form(...), db
             return RedirectResponse(url="/", status_code=303)
         
         channel_name = streamer.channel_name.lower()
-        is_dev = "sarthak" in channel_name or "goddess" in channel_name
+        is_dev = "sarthak" in channel_name or "goddess" in channel_name or "nawabo" in channel_name
         has_paid = request.session.get("has_paid_premium", False) 
         
         if not (is_dev or has_paid):
@@ -483,7 +576,6 @@ async def update_goal(request: Request, goal_id: int = Form(...), amount: int = 
 # ---------------------------------------------------------
 # AI MODERATION ENDPOINTS
 # ---------------------------------------------------------
-DEV_YOUTUBE_IDS = {"@uk_hi_kahda", "@goddessislive"}
 
 @app.post("/api/moderation/process-message")
 async def process_chat_message(
@@ -896,8 +988,9 @@ async def startup_event():
         task1 = asyncio.create_task(yt_monitor.run())
         task2 = asyncio.create_task(start_discord_bot())
         task3 = asyncio.create_task(start_timed_command_loop())
+        task4 = asyncio.create_task(websub_renewal_loop())
         
-        running_tasks.extend([task1, task2, task3])
+        running_tasks.extend([task1, task2, task3, task4])
         
         logger.info("[STARTUP] All services (Web Dashboard, YouTube Live Monitor, Discord Bot, Timed Commands) are ACTIVE!")
     except Exception as e:
