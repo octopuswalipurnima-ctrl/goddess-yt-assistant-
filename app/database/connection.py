@@ -16,7 +16,7 @@ def init_db():
     # --- THE FIX: Break the Circular Import ---
     # We import the models down here INSIDE the function. 
     # This guarantees connection.py is fully loaded before it asks for models.py
-    from app.database.models import Streamer, User, XP, Coin, ChatLog, DiscordLink
+    from app.database.models import Streamer, User, XP, Coin, ChatLog, DiscordLink, SystemState
     
     # Generate all the new SaaS tables
     Base.metadata.create_all(bind=engine)
