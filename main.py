@@ -239,24 +239,57 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
 
 
 # ---------------------------------------------------------
+# NEW: DIRECT CREATOR DEPLOYMENT ROUTE
+# ---------------------------------------------------------
+@app.post("/api/deploy-bot")
+async def deploy_bot_manually(request: Request, stream_url: str = Form(...), db: Session = Depends(get_db)):
+    """Allows a logged-in streamer to manually push their bot to a specific URL instantly."""
+    try:
+        streamer_id = request.session.get("streamer_id")
+        if not streamer_id:
+            return RedirectResponse(url="/", status_code=303)
+            
+        streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+        if not streamer:
+            return RedirectResponse(url="/", status_code=303)
+            
+        # Extract Video ID from URL
+        yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/live\/)([a-zA-Z0-9_-]{11})"
+        match = re.search(yt_regex, stream_url.strip())
+        video_id = match.group(1) if match else stream_url.strip()
+        
+        if video_id:
+            DETECTED_VIDEOS.add(video_id)
+            logger.info(f"[MANUAL DEPLOY] Streamer '{streamer.channel_name}' manually deployed bot to video ID: {video_id}")
+            return RedirectResponse(url="/?success=bot_deployed", status_code=303)
+        else:
+            logger.warning(f"[MANUAL DEPLOY] Streamer '{streamer.channel_name}' provided invalid URL: {stream_url}")
+            return RedirectResponse(url="/?error=invalid_url", status_code=303)
+            
+    except Exception as e:
+        logger.exception(f"[MANUAL DEPLOY ERROR] Failed manually deploying bot: {e}")
+        return RedirectResponse(url="/?error=deploy_failed", status_code=303)
+
+
+# ---------------------------------------------------------
 # ADMIN CONTROL PANEL ROUTES (PROTECTED BY ID & PASSWORD)
 # ---------------------------------------------------------
 security = HTTPBasic()
 
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    """Verifies the hardcoded admin credentials using secure comparison."""
-    # CHANGE YOUR ADMIN ID AND PASSWORD HERE
-    correct_username = secrets.compare_digest(credentials.username, "admin")
-    correct_password = secrets.compare_digest(credentials.password, "goddess2026")
+    """Verifies the hardcoded admin credentials."""
+    input_user = credentials.username.strip()
+    input_pass = credentials.password.strip()
     
-    if not (correct_username and correct_password):
-        logger.warning(f"[ADMIN SECURITY] Failed login attempt with username: {credentials.username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Admin Credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
+    if input_user == "admin" and input_pass == "goddess2026":
+        return input_user
+        
+    logger.warning(f"[ADMIN SECURITY] Failed login attempt with username: '{input_user}'")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid Admin Credentials",
+        headers={"WWW-Authenticate": "Basic"},
+    )
 
 @app.get("/admin")
 async def serve_admin_panel(request: Request, admin_user: str = Depends(verify_admin), db: Session = Depends(get_db)):

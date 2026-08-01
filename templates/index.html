@@ -130,6 +130,14 @@
             <h2 style="margin: 0;">Welcome, {{ streamer_name }}!</h2>
             <p style="color: #9ca3af; margin-top: 5px;">Your dashboard is active and synced.</p>
         </div>
+        <div class="card bg-dark border-secondary p-3 mt-4">
+    <h5 class="text-white fw-bold">🔗 Instant Bot Deployment</h5>
+    <p class="text-secondary small mb-2">Bypass automatic detection. Paste your YouTube stream link here to force the bot into your chat instantly.</p>
+    <form action="/api/deploy-bot" method="POST" class="d-flex gap-2">
+        <input type="text" name="stream_url" class="form-control bg-dark text-white border-secondary" placeholder="Paste your YouTube Live URL here..." required>
+        <button type="submit" class="btn btn-outline-info fw-bold">Deploy Bot</button>
+    </form>
+</div>
 
         <!-- 🚨 PANIC BUTTON PROTOCOL 🚨 -->
         <div style="margin-bottom: 30px; background: rgba(239, 68, 68, 0.1); border: 1px dashed #ef4444; padding: 20px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between;">
