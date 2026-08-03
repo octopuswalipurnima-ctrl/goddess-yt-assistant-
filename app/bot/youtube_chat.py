@@ -12,7 +12,7 @@ from app.database.connection import SessionLocal
 from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState
 from app.ai.generator import AIBrain
 from app.utils.config import Config
-from app.services.websocket import overlay_manager  # <-- NEW: OBS WebSocket Manager
+from app.services.websocket import overlay_manager  # <-- OBS WebSocket Manager
 
 # ---------------------------------------------------------
 # SHARED MEMORY: Used to pass video links from Discord to YouTube
@@ -508,7 +508,8 @@ class YouTubeChatMonitor:
                             if is_guest:
                                 await self.send_message("👋 Hello! Goddess AI (Guest Mode) has successfully connected to the chat!", chat_id)
                             else:
-                                await self.send_message("🟢 Goddess AI system online and ready! Try typing !stats to view your coins.", chat_id)
+                                # >>> THIS IS THE EXACT LINE UPDATED <<<
+                                await self.send_message("🤖 mod hajir hai janab uk malik ki kami nhi hone dega 😁😸 (Mods type !checkup)", chat_id)
                 
                 active_streamer_ids = list(self.active_streams.keys())
                 for streamer_key in active_streamer_ids:
