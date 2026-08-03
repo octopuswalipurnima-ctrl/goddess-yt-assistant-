@@ -92,7 +92,8 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
                     "settings": {},
                     "clips": [],
                     "commands": [],
-                    "vips": []
+                    "vips": [],
+                    "active_videos": []
                 }
             )
             
@@ -120,6 +121,8 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             "is_discord_linked": bool(streamer.discord_guild_id)
         }
         
+        active_video_ids = list(DETECTED_VIDEOS)
+        
         logger.info(f"[DASHBOARD] Dashboard rendered successfully for streamer: {streamer.channel_name}")
         return templates.TemplateResponse(
             request=request, 
@@ -131,12 +134,13 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
                 "settings": settings,
                 "clips": recent_clips,
                 "commands": commands,
-                "vips": vips
+                "vips": vips,
+                "active_videos": active_video_ids
             }
         )
     except Exception as e:
         logger.exception(f"[DASHBOARD ERROR] Failed to render dashboard: {e}")
-        return templates.TemplateResponse(request=request, name="index.html", context={"request": request, "streamer_name": None, "viewers": [], "settings": {}, "clips": [], "commands": [], "vips": []})
+        return templates.TemplateResponse(request=request, name="index.html", context={"request": request, "streamer_name": None, "viewers": [], "settings": {}, "clips": [], "commands": [], "vips": [], "active_videos": []})
 
 
 @app.post("/toggle-setting")
@@ -228,6 +232,17 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
             video_id = data["items"][0]["id"]["videoId"]
             logger.info(f"[SESSION:{session_id}] [YOUTUBE LIVE CHECK] Target stream acquired: Video ID {video_id}. Deploying chat bot.")
             DETECTED_VIDEOS.add(video_id)
+            
+            # AUTOMATED OBS CONNECTION ALERT
+            if streamer.server_sync_code:
+                await overlay_manager.send_alert(streamer.server_sync_code, {
+                    "type": "alert",
+                    "event_type": "newSponsorEvent",
+                    "author": "🤖 SYSTEM CONNECTED",
+                    "message": "Bot deployed via Panic Button! Mods type !checkup in chat.",
+                    "amount": "✅ ONLINE"
+                })
+                
             return RedirectResponse(url="/?success=bot_deployed", status_code=303)
         else:
             logger.info(f"[SESSION:{session_id}] [YOUTUBE LIVE CHECK] Scanned YouTube but no active live stream found for channel: {streamer.channel_name}")
@@ -239,7 +254,7 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db))
 
 
 # ---------------------------------------------------------
-# NEW: DIRECT CREATOR DEPLOYMENT ROUTE
+# DIRECT CREATOR DEPLOYMENT & DISCONNECT ROUTES
 # ---------------------------------------------------------
 @app.post("/api/deploy-bot")
 async def deploy_bot_manually(request: Request, stream_url: str = Form(...), db: Session = Depends(get_db)):
@@ -253,7 +268,6 @@ async def deploy_bot_manually(request: Request, stream_url: str = Form(...), db:
         if not streamer:
             return RedirectResponse(url="/", status_code=303)
             
-        # Extract Video ID from URL
         yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/live\/)([a-zA-Z0-9_-]{11})"
         match = re.search(yt_regex, stream_url.strip())
         video_id = match.group(1) if match else stream_url.strip()
@@ -261,6 +275,17 @@ async def deploy_bot_manually(request: Request, stream_url: str = Form(...), db:
         if video_id:
             DETECTED_VIDEOS.add(video_id)
             logger.info(f"[MANUAL DEPLOY] Streamer '{streamer.channel_name}' manually deployed bot to video ID: {video_id}")
+            
+            # AUTOMATED OBS CONNECTION ALERT
+            if streamer.server_sync_code:
+                await overlay_manager.send_alert(streamer.server_sync_code, {
+                    "type": "alert",
+                    "event_type": "newSponsorEvent",
+                    "author": "🤖 SYSTEM CONNECTED",
+                    "message": "Chat bot deployed! Mods type !checkup in chat to view the feature guide.",
+                    "amount": "✅ ONLINE"
+                })
+                
             return RedirectResponse(url="/?success=bot_deployed", status_code=303)
         else:
             logger.warning(f"[MANUAL DEPLOY] Streamer '{streamer.channel_name}' provided invalid URL: {stream_url}")
@@ -269,6 +294,23 @@ async def deploy_bot_manually(request: Request, stream_url: str = Form(...), db:
     except Exception as e:
         logger.exception(f"[MANUAL DEPLOY ERROR] Failed manually deploying bot: {e}")
         return RedirectResponse(url="/?error=deploy_failed", status_code=303)
+
+@app.post("/api/disconnect-bot")
+async def disconnect_bot_manually(request: Request, video_id: str = Form(...)):
+    """Allows the creator to disconnect the bot directly from their panel."""
+    try:
+        streamer_id = request.session.get("streamer_id")
+        if not streamer_id:
+            return RedirectResponse(url="/", status_code=303)
+            
+        if video_id in DETECTED_VIDEOS:
+            DETECTED_VIDEOS.remove(video_id)
+            logger.info(f"[MANUAL DISCONNECT] Streamer disconnected bot from video ID: {video_id}")
+            
+        return RedirectResponse(url="/?success=disconnected", status_code=303)
+    except Exception as e:
+        logger.exception(f"[DISCONNECT ERROR] {e}")
+        return RedirectResponse(url="/", status_code=303)
 
 
 # ---------------------------------------------------------
@@ -336,6 +378,16 @@ async def admin_force_join(
 
         DETECTED_VIDEOS.add(video_id)
         logger.info(f"[ADMIN FORCE JOIN] {admin_user} deployed bot to stream '{video_id}' for streamer '{target_streamer.channel_name}'")
+        
+        # AUTOMATED OBS CONNECTION ALERT
+        if target_streamer.server_sync_code:
+            await overlay_manager.send_alert(target_streamer.server_sync_code, {
+                "type": "alert",
+                "event_type": "newSponsorEvent",
+                "author": "👑 ADMIN DEPLOYMENT",
+                "message": "Super Admin deployed the bot! Mods type !checkup to test features.",
+                "amount": "✅ ONLINE"
+            })
 
         return RedirectResponse(url="/admin?success=bot_deployed", status_code=303)
     except Exception as e:
@@ -360,7 +412,7 @@ async def admin_disconnect_stream(
 
 
 # ---------------------------------------------------------
-# NEW: YOUTUBE WEBSUB (PUBSUBHUBBUB) NOTIFICATION ENDPOINTS
+# YOUTUBE WEBSUB (PUBSUBHUBBUB) NOTIFICATION ENDPOINTS
 # ---------------------------------------------------------
 @app.get("/api/youtube-webhook")
 async def verify_youtube_webhook(request: Request):
@@ -372,7 +424,7 @@ async def verify_youtube_webhook(request: Request):
     return Response(status_code=400)
 
 @app.post("/api/youtube-webhook")
-async def receive_youtube_webhook(request: Request):
+async def receive_youtube_webhook(request: Request, db: Session = Depends(get_db)):
     """Step 2: YouTube sends a POST request with XML when a stream starts."""
     try:
         xml_data = await request.body()
@@ -386,10 +438,25 @@ async def receive_youtube_webhook(request: Request):
         entry = root.find('atom:entry', namespaces)
         if entry is not None:
             video_id_element = entry.find('yt:videoId', namespaces)
+            channel_id_element = entry.find('yt:channelId', namespaces)
+            
             if video_id_element is not None:
                 video_id = video_id_element.text
                 logger.info(f"[WEBSUB NOTIFICATION] Target stream detected! Video ID: {video_id}")
                 DETECTED_VIDEOS.add(video_id)
+                
+                # Fetch streamer for overlay alert
+                if channel_id_element is not None:
+                    channel_id = channel_id_element.text
+                    streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == channel_id).first()
+                    if streamer and streamer.server_sync_code:
+                        await overlay_manager.send_alert(streamer.server_sync_code, {
+                            "type": "alert",
+                            "event_type": "newSponsorEvent",
+                            "author": "🤖 SYSTEM CONNECTED",
+                            "message": "Auto-Deploy successful! Mods type !checkup in chat.",
+                            "amount": "✅ ONLINE"
+                        })
 
         return Response(status_code=204) 
     except Exception as e:
@@ -662,7 +729,8 @@ async def process_chat_message(
             (trust and (trust.is_whitelisted or trust.trust_score > 85.0))
         )
 
-        valid_mgmt_cmds = {"!adduk", "!edituk", "!deluk", "!reptuk"}
+        # ADDED !checkup TO VALID COMMANDS LIST
+        valid_mgmt_cmds = {"!adduk", "!edituk", "!deluk", "!reptuk", "!checkup"}
 
         if words_lower:
             cmd = words_lower[0]
@@ -741,7 +809,13 @@ async def process_chat_message(
             elif cmd in valid_mgmt_cmds and is_authorized_mod:
                 action = cmd
                 
-                if action == "!adduk" and len(words_original) >= 3:
+                # MOD TESTING GUIDE COMMAND
+                if action == "!checkup":
+                    bot_response = "🤖 MOD CHECKUP: 1. !adduk !test hi 2. !edituk !test yo 3. !deluk !test 4. !reptuk !test 5 5. !next | Bugs? Dev Discord: 998489383239946292"
+                    logger.info(f"[SESSION:{session_id}] [REPLY] !checkup result: {bot_response}")
+                    return {"verdict": "Safe", "action": "Reply", "bot_response": bot_response}
+                
+                elif action == "!adduk" and len(words_original) >= 3:
                     new_trigger = words_lower[1] if words_lower[1].startswith("!") else f"!{words_lower[1]}"
                     response_content = " ".join(words_original[2:])
                     
