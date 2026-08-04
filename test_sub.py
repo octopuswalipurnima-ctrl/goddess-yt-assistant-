@@ -8,7 +8,7 @@ print(f"Sending WebSub subscription request for NaWaBo ({nawabo_uc_id})...")
 
 hub_url = "https://pubsubhubbub.appspot.com/subscribe"
 callback_url = "https://goddess-yt-assistant-production-b575.up.railway.app/api/youtube-webhook"
-topic_url = f"https://www.youtube.com/xml/feeds/videos.xml?channel_id={UCVQ8Qn1JPuZV8VzOgIdUGxQ}"
+topic_url = f"https://www.youtube.com/xml/feeds/videos.xml?channel_id={UCCMwadkzXrznmMpZd5ek6PA}"
 
 data = {
     "hub.callback": callback_url,
