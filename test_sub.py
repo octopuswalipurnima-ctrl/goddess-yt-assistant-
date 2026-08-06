@@ -1,14 +1,14 @@
 import urllib.request
 import urllib.parse
 
-# Paste NaWaBo's UC ID below:
-nawabo_uc_id = "UC_PASTE_NAWABOS_ID_HERE"
+# Your new channel's UC ID
+new_channel_uc_id = "UCCMwadkzXrznmMpZd5ek6PA"
 
-print(f"Sending WebSub subscription request for NaWaBo ({nawabo_uc_id})...")
+print(f"Sending WebSub subscription request for Channel ({new_channel_uc_id})...")
 
 hub_url = "https://pubsubhubbub.appspot.com/subscribe"
 callback_url = "https://goddess-yt-assistant-production-b575.up.railway.app/api/youtube-webhook"
-topic_url = f"https://www.youtube.com/xml/feeds/videos.xml?channel_id={UCCMwadkzXrznmMpZd5ek6PA}"
+topic_url = f"https://www.youtube.com/xml/feeds/videos.xml?channel_id={new_channel_uc_id}"
 
 data = {
     "hub.callback": callback_url,

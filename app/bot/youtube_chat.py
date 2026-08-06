@@ -15,9 +15,10 @@ from app.utils.config import Config
 from app.services.websocket import overlay_manager  # <-- OBS WebSocket Manager
 
 # ---------------------------------------------------------
-# SHARED MEMORY: Used to pass video links from Discord to YouTube
+# SHARED MEMORY & DEVELOPER OVERRIDES
 # ---------------------------------------------------------
 DETECTED_VIDEOS = set()
+DEV_YOUTUBE_IDS = {"@uk_hi_kahda", "@goddessislive", "@nawaboislive"}
 
 
 class YouTubeChatMonitor:
@@ -173,7 +174,7 @@ class YouTubeChatMonitor:
 
 
     # ---------------------------------------------------------
-    # DONATION & MEMBERSHIP PROCESSOR (GUEST & OBS READY)
+    # DONATION & MEMBERSHIP PROCESSOR
     # ---------------------------------------------------------
     async def handle_support_event(self, event_type: str, snippet: dict, author_name: str, yt_user_id: str, streamer_id, live_chat_id: str, is_guest: bool = False):
         db = SessionLocal() if not is_guest else None
@@ -218,7 +219,6 @@ class YouTubeChatMonitor:
                     user.coins[0].lifetime_earned += coin_bonus
                     db.commit()
 
-                # --- NEW: OBS WIDGET ALERT TRIGGER ---
                 streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
                 if streamer and streamer.server_sync_code:
                     alert_payload = {
@@ -247,8 +247,16 @@ class YouTubeChatMonitor:
         db = SessionLocal() if not is_guest else None
         try:
             text_words = message_text.lower().split()
-            clean_username = username.lower().replace("@", "")
+            clean_username = username.strip().lower()
+            if not clean_username.startswith("@"):
+                clean_username = f"@{clean_username}"
+                
             command_text = message_text.strip().lower()
+
+            # --- DEVELOPER OVERRIDE CHECK ---
+            is_dev = clean_username in DEV_YOUTUBE_IDS
+            if is_dev:
+                is_mod = True
 
             # --- GUEST MODE OVERRIDE ---
             if is_guest:
@@ -256,7 +264,10 @@ class YouTubeChatMonitor:
                     parts = command_text.split(" ")
                     cmd = parts[0]
                     args = parts[1:]
-                    if cmd == "!so" and args:
+                    
+                    if cmd == "!checkup":
+                        await self.send_message("🤖 MOD CHECKUP: 1. !so 2. !giveaway start 3. /goddess !cmd response | Dev Discord: 998489383239946292", live_chat_id)
+                    elif cmd == "!so" and args:
                         await self.send_message(f"🌟 Huge shoutout to {args[0].replace('@', '')}!", live_chat_id)
                     elif cmd == "!giveaway" and args and args[0] == "start":
                         await self.send_message("🎉 A giveaway has started! Type !join to enter!", live_chat_id)
@@ -269,7 +280,7 @@ class YouTubeChatMonitor:
                 elif command_text in self.custom_commands:
                     await self.send_message(self.custom_commands[command_text], live_chat_id)
                     
-                return # EXIT EARLY: No DB, No XP, No AI, No Games in Guest Mode.
+                return # EXIT EARLY for Guest Mode
 
             # --- PREMIUM MODE LOGIC ---
             streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
@@ -281,7 +292,10 @@ class YouTubeChatMonitor:
                 command = parts[0]
                 args = parts[1:]
 
-                if command == "!so" and args:
+                if command == "!checkup":
+                    await self.send_message("🤖 MOD CHECKUP: 1. !adduk !test hi 2. !edituk !test yo 3. !deluk !test 4. !reptuk !test 5 5. !next | Dev Discord: 998489383239946292", live_chat_id)
+                    return
+                elif command == "!so" and args:
                     await self.send_message(f"🌟 Huge shoutout to {args[0].replace('@', '')}! Go check out their amazing content and drop a sub!", live_chat_id)
                     return
                 elif command == "!warn" and args:
@@ -317,7 +331,7 @@ class YouTubeChatMonitor:
                     asyncio.create_task(self.run_br_game(live_chat_id))
                     return
 
-            # 2. AUTOMATED MODERATION (Spam & Words & AI)
+            # 2. AUTOMATED MODERATION
             if any(word in text_words for word in self.banned_words):
                 await self.delete_message(message_id)
                 self.send_discord_log(webhook_url, "Banned Word Filter", username, message_text, "Hardcoded blocklist")
@@ -333,8 +347,8 @@ class YouTubeChatMonitor:
                 self.send_discord_log(webhook_url, "Spam Timeout", username, message_text, "Exceeded rate limit")
                 return
 
-            if clean_username in self.monitored_users and self.is_ai_active:
-                user_data = self.monitored_users[clean_username]
+            if clean_username.replace("@", "") in self.monitored_users and self.is_ai_active:
+                user_data = self.monitored_users[clean_username.replace("@", "")]
                 now = datetime.now(timezone.utc)
                 user_data["yt_user_id"] = yt_user_id
                 
@@ -351,7 +365,7 @@ class YouTubeChatMonitor:
                         else:
                             await self.send_message(f"🚫 @{username} hidden for repeated violations.", live_chat_id)
                             await self.ban_user(live_chat_id, yt_user_id)
-                            del self.monitored_users[clean_username]
+                            del self.monitored_users[clean_username.replace("@", "")]
                         return
 
             # 3. REWARDS & ECONOMY SETUP
@@ -378,7 +392,7 @@ class YouTubeChatMonitor:
                 new_level = self.calculate_level_up(xp_profile.current_xp, xp_profile.level)
                 if new_level > xp_profile.level: xp_profile.level = new_level
 
-            # 4. VIEWER COMMANDS (Mini-Games & Stats)
+            # 4. VIEWER COMMANDS
             parts = command_text.split()
             cmd = parts[0] if parts else ""
 
@@ -505,11 +519,8 @@ class YouTubeChatMonitor:
                             name = streamer.channel_name if streamer else f"Guest Stream ({channel_id})"
                             print(f"[LIVE] {mode_str} Connected to {name}'s chat!")
 
-                            if is_guest:
-                                await self.send_message("👋 Hello! Goddess AI (Guest Mode) has successfully connected to the chat!", chat_id)
-                            else:
-                                # >>> THIS IS THE EXACT LINE UPDATED <<<
-                                await self.send_message("🤖 mod hajir hai janab uk malik ki kami nhi hone dega 😁😸 (Mods type !checkup)", chat_id)
+                            # AUTOMATED JOIN MESSAGE IN YOUTUBE LIVE CHAT
+                            await self.send_message("🤖 mod hajir hai janab uk malik ki kami nhi hone dega 😁😸 (Mods type !checkup)", chat_id)
                 
                 active_streamer_ids = list(self.active_streams.keys())
                 for streamer_key in active_streamer_ids:
