@@ -12,13 +12,20 @@ from app.database.connection import SessionLocal
 from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState
 from app.ai.generator import AIBrain
 from app.utils.config import Config
-from app.services.websocket import overlay_manager  # <-- OBS WebSocket Manager
+from app.services.websocket import overlay_manager
 
 # ---------------------------------------------------------
 # SHARED MEMORY & DEVELOPER OVERRIDES
 # ---------------------------------------------------------
 DETECTED_VIDEOS = set()
-DEV_YOUTUBE_IDS = {"@uk_hi_kahda", "@goddessislive", "@nawaboislive"}
+
+# Accept Handles, Display Names, and Channel IDs
+DEV_IDENTIFIERS = {
+    "@uk_hi_kahda", "uk_hi_kahda", "uk hi kahda", "ukhikahda",
+    "@goddessislive", "goddessislive", "goddess live",
+    "@nawaboislive", "nawaboislive", "nawabo is live",
+    "uccmwadkzxrenmmpzd5ek6pa"  # Your new Channel ID (lowercase)
+}
 
 
 class YouTubeChatMonitor:
@@ -36,7 +43,7 @@ class YouTubeChatMonitor:
         # --- Multi-Tenant Trackers ---
         self.active_streams = {}  
         self.next_page_tokens = {} 
-        self.stream_modes = {} # Tracks if a stream is 'guest' or 'premium'
+        self.stream_modes = {}
         
         # --- Escalating AI Monitor ---
         self.monitored_users = {} 
@@ -48,7 +55,7 @@ class YouTubeChatMonitor:
         self.custom_commands = {}
 
         # --- BATTLE ROYALE STATE ---
-        self.br_games = {} # Format: {live_chat_id: {"state": "waiting", "players": {}, "airdrop": False, "prize": 0}}
+        self.br_games = {}
 
         self.banned_words = {
             "mc", "bc", "bsdk", "mkc", "chutiya", "gandu", 
@@ -57,7 +64,7 @@ class YouTubeChatMonitor:
         }
 
     # ---------------------------------------------------------
-    # API ACTION METHODS
+    # API ACTION METHODS (NON-BLOCKING ASYNC FIX)
     # ---------------------------------------------------------
     def send_discord_log(self, webhook_url: str, action_type: str, username: str, text: str, reason: str):
         if not webhook_url: return
@@ -74,34 +81,46 @@ class YouTubeChatMonitor:
 
     async def send_message(self, text: str, live_chat_id: str):
         if not live_chat_id: return
-        try:
-            self.youtube.liveChatMessages().insert(
+        def _execute_send():
+            return self.youtube.liveChatMessages().insert(
                 part="snippet",
-                body={"snippet": {"liveChatId": live_chat_id, "type": "textMessageEvent", "textMessageDetails": {"messageText": text}}}
+                body={
+                    "snippet": {
+                        "liveChatId": live_chat_id,
+                        "type": "textMessageEvent",
+                        "textMessageDetails": {"messageText": text}
+                    }
+                }
             ).execute()
-        except Exception as e: print(f"[YOUTUBE SEND ERROR]: {e}")
+
+        try:
+            await asyncio.to_thread(_execute_send)
+            print(f"[YOUTUBE CHAT SENT]: {text}")
+        except Exception as e:
+            print(f"[YOUTUBE SEND ERROR] Failed to send message '{text}': {e}")
 
     async def delete_message(self, message_id: str):
         if not message_id: return
-        try: self.youtube.liveChatMessages().delete(id=message_id).execute()
+        try:
+            await asyncio.to_thread(lambda: self.youtube.liveChatMessages().delete(id=message_id).execute())
         except Exception as e: print(f"[YOUTUBE DELETE ERROR]: {e}")
 
     async def timeout_user(self, live_chat_id: str, channel_id: str, duration_seconds: int = 300):
         if not live_chat_id or not channel_id: return
         try:
-            self.youtube.liveChatBans().insert(
+            await asyncio.to_thread(lambda: self.youtube.liveChatBans().insert(
                 part="snippet",
                 body={"snippet": {"liveChatId": live_chat_id, "type": "temporary", "temporaryBanDurationMinutes": int(duration_seconds / 60), "bannedUserDetails": {"channelId": channel_id}}}
-            ).execute()
+            ).execute())
         except Exception as e: print(f"[YOUTUBE TIMEOUT ERROR]: {e}")
 
     async def ban_user(self, live_chat_id: str, channel_id: str):
         if not live_chat_id or not channel_id: return
         try:
-            self.youtube.liveChatBans().insert(
+            await asyncio.to_thread(lambda: self.youtube.liveChatBans().insert(
                 part="snippet",
                 body={"snippet": {"liveChatId": live_chat_id, "type": "permanent", "bannedUserDetails": {"channelId": channel_id}}}
-            ).execute()
+            ).execute())
         except Exception as e: print(f"[YOUTUBE BAN ERROR]: {e}")
 
     def calculate_level_up(self, current_xp: int, current_level: int) -> int:
@@ -248,13 +267,16 @@ class YouTubeChatMonitor:
         try:
             text_words = message_text.lower().split()
             clean_username = username.strip().lower()
-            if not clean_username.startswith("@"):
-                clean_username = f"@{clean_username}"
-                
             command_text = message_text.strip().lower()
 
-            # --- DEVELOPER OVERRIDE CHECK ---
-            is_dev = clean_username in DEV_YOUTUBE_IDS
+            # --- FLEXIBLE DEVELOPER OVERRIDE CHECK ---
+            is_dev = (
+                clean_username in DEV_IDENTIFIERS or 
+                clean_username.replace(" ", "") in DEV_IDENTIFIERS or
+                f"@{clean_username.replace(' ', '')}" in DEV_IDENTIFIERS or
+                yt_user_id.lower() in DEV_IDENTIFIERS
+            )
+            
             if is_dev:
                 is_mod = True
 
