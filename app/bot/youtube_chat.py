@@ -17,14 +17,15 @@ from app.services.websocket import overlay_manager
 # ---------------------------------------------------------
 # SHARED MEMORY & DEVELOPER OVERRIDES
 # ---------------------------------------------------------
-DETECTED_VIDEOS = set()
+DETECTED_VIDEOS = {}  # Changed to Dictionary to accept Forced Streamer IDs
+DISCONNECT_QUEUE = set()
 
 # Accept Handles, Display Names, and Channel IDs
 DEV_IDENTIFIERS = {
     "@uk_hi_kahda", "uk_hi_kahda", "uk hi kahda", "ukhikahda",
     "@goddessislive", "goddessislive", "goddess live",
     "@nawaboislive", "nawaboislive", "nawabo is live",
-    "uccmwadkzxrenmmpzd5ek6pa"  # Your new Channel ID (lowercase)
+    "uccmwadkzxrenmmpzd5ek6pa"
 }
 
 
@@ -516,34 +517,53 @@ class YouTubeChatMonitor:
 
     async def run(self):
         print("[YOUTUBE DETECTOR] Event-Driven Engine Online. Waiting for Discord pings...")
-        global DETECTED_VIDEOS
+        global DETECTED_VIDEOS, DISCONNECT_QUEUE
         
         while True:
             db = SessionLocal()
             try:
-                videos_to_check = list(DETECTED_VIDEOS)
+                # 1. Handle incoming Disconnect Requests first
+                disconnects = list(DISCONNECT_QUEUE)
+                DISCONNECT_QUEUE.clear()
+                for vid in disconnects:
+                    keys_to_del = [k for k, v in self.active_streams.items() if v.get("video_id") == vid]
+                    for k in keys_to_del:
+                        del self.active_streams[k]
+                        if k in self.stream_modes:
+                            del self.stream_modes[k]
+                        print(f"[DISCONNECT] Bot manually removed from video {vid}")
+
+                # 2. Process new Video links
+                videos_to_check = dict(DETECTED_VIDEOS)
                 DETECTED_VIDEOS.clear() 
                 
-                for video_id in videos_to_check:
+                for video_id, forced_streamer_id in videos_to_check.items():
                     channel_id, chat_id = self.get_chat_from_video(video_id)
                     
                     if channel_id and chat_id:
-                        streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == channel_id, Streamer.is_active == True).first()
+                        # >>> GOD MODE CHECK: Use Forced Dev Profile if present, otherwise auto-detect
+                        if forced_streamer_id:
+                            streamer = db.query(Streamer).filter(Streamer.id == forced_streamer_id).first()
+                        else:
+                            streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == channel_id, Streamer.is_active == True).first()
                         
                         stream_key = streamer.id if streamer else f"guest_{channel_id}"
                         is_guest = streamer is None
                         
                         if stream_key not in self.active_streams:
-                            self.active_streams[stream_key] = {"chat_id": chat_id, "start_time": datetime.now(timezone.utc)}
+                            self.active_streams[stream_key] = {"chat_id": chat_id, "video_id": video_id, "start_time": datetime.now(timezone.utc)}
                             self.stream_modes[stream_key] = "guest" if is_guest else "premium"
                             
                             mode_str = "🟡 GUEST" if is_guest else "🟢 PREMIUM"
                             name = streamer.channel_name if streamer else f"Guest Stream ({channel_id})"
                             print(f"[LIVE] {mode_str} Connected to {name}'s chat!")
 
-                            # AUTOMATED JOIN MESSAGE IN YOUTUBE LIVE CHAT
-                            await self.send_message("🤖 mod hajir hai janab uk malik ki kami nhi hone dega 😁😸 (Mods type !checkup)", chat_id)
+                            if is_guest:
+                                await self.send_message("👋 Hello! Goddess AI (Guest Mode) has successfully connected to the chat!", chat_id)
+                            else:
+                                await self.send_message("🤖 mod hajir hai janab uk malik ki kami nhi hone dega 😁😸 (Mods type !checkup)", chat_id)
                 
+                # 3. Read Chat Messages
                 active_streamer_ids = list(self.active_streams.keys())
                 for streamer_key in active_streamer_ids:
                     chat_info = self.active_streams[streamer_key]
@@ -552,7 +572,6 @@ class YouTubeChatMonitor:
                     is_guest = self.stream_modes.get(streamer_key) == "guest"
                     
                     try:
-                        # API Cap Check
                         sys_state = db.query(SystemState).first()
                         if sys_state and sys_state.youtube_api_calls >= sys_state.youtube_api_cap:
                             print(f"[API CAP] YouTube API cap reached ({sys_state.youtube_api_calls}/{sys_state.youtube_api_cap}). Skipping fetch.")
