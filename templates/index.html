@@ -731,5 +731,30 @@
             alert("OBS Browser Source URL copied to clipboard!");
         }
     </script>
+    <!-- Script added to the bottom of the body -->
+    <script>
+        // 1. Copy OBS Link Function
+        function copyOBS() {
+            var copyText = document.getElementById("obsLink");
+            copyText.select();
+            document.execCommand("copy");
+            alert("OBS Browser Source URL copied to clipboard!");
+        }
+
+        // 2. SCROLL MEMORY FIX: Prevent page jumping to the top on button clicks
+        document.addEventListener("DOMContentLoaded", function(event) { 
+            // When the page loads, check if we saved a scroll position
+            var scrollpos = sessionStorage.getItem('scrollpos');
+            if (scrollpos) {
+                window.scrollTo(0, scrollpos);
+                sessionStorage.removeItem('scrollpos'); // Clean up after restoring
+            }
+        });
+
+        window.onbeforeunload = function(e) {
+            // The exact moment before the page refreshes, save where the user is looking
+            sessionStorage.setItem('scrollpos', window.scrollY);
+        };
+    </script>
 </body>
 </html>
