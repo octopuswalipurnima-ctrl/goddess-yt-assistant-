@@ -1,7 +1,9 @@
 import random
 from google import genai
 from google.genai import types
+from app.database.connection import SessionLocal
 from app.utils.config import Config
+from app.database.models import SystemState
 
 class AIBrain:
     def __init__(self):
@@ -41,6 +43,12 @@ class AIBrain:
         )
 
         try:
+            db = SessionLocal()
+            sys_state = db.query(SystemState).first()
+            if sys_state and sys_state.gemini_api_calls >= sys_state.gemini_api_cap:
+                db.close()
+                return None
+
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
@@ -50,8 +58,15 @@ class AIBrain:
                     max_output_tokens=50
                 )
             )
+
+            if sys_state:
+                sys_state.gemini_api_calls += 1
+                db.commit()
+            db.close()
             return response.text.strip()
+
         except Exception as e:
+            db.close()
             print(f"Gemini API Error: {e}")
             return None
 
@@ -64,6 +79,12 @@ class AIBrain:
             "Return only the direct announcement sentence."
         )
         try:
+            db = SessionLocal()
+            sys_state = db.query(SystemState).first()
+            if sys_state and sys_state.gemini_api_calls >= sys_state.gemini_api_cap:
+                db.close()
+                return "Hey chat! Make sure you're active and collecting your stream coins—giveaway details coming up!"
+
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
@@ -73,7 +94,14 @@ class AIBrain:
                     max_output_tokens=60
                 )
             )
+
+            if sys_state:
+                sys_state.gemini_api_calls += 1
+                db.commit()
+            db.close()
             return response.text.strip()
+
         except Exception as e:
+            db.close()
             print(f"Gemini Reminder Error: {e}")
             return "Hey chat! Make sure you're active and collecting your stream coins—giveaway details coming up!"
