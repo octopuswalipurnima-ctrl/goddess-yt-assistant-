@@ -29,7 +29,13 @@ from app.database.models import (
 )
 from app.dashboard.auth import router as auth_router
 from app.dashboard.routes import router as dashboard_router
-from app.bot.youtube_chat import YouTubeChatMonitor, DETECTED_VIDEOS, DISCONNECT_QUEUE
+
+# --- IMPORTING THE NEW AI GLOBALS ---
+from app.bot.youtube_chat import (
+    YouTubeChatMonitor, DETECTED_VIDEOS, DISCONNECT_QUEUE, 
+    MANUAL_MOD_MODE, AI_OBSERVER_MODE
+)
+
 from app.bot.discord_bot import start_discord_bot
 from app.services.scheduler import start_scheduler, start_timed_command_loop, websub_renewal_loop
 from app.services.websocket import overlay_manager
@@ -114,11 +120,14 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
         commands = db.query(CustomCommand).filter(CustomCommand.streamer_id == streamer_id).all()
         vips = db.query(VIPGuest).filter(VIPGuest.streamer_id == streamer_id).all()
         
+        # LINKING AI OBSERVER AND MOD ASKING SETTINGS TO WEB UI
         settings = {
             "ai_cohost_enabled": streamer.ai_cohost_enabled,
             "giveaway_reminders_enabled": streamer.giveaway_reminders_enabled,
             "server_sync_code": streamer.server_sync_code,
-            "is_discord_linked": bool(streamer.discord_guild_id)
+            "is_discord_linked": bool(streamer.discord_guild_id),
+            "manual_mod_mode": MANUAL_MOD_MODE.get(streamer_id, True),
+            "ai_observer_mode": AI_OBSERVER_MODE.get(streamer_id, True)
         }
         
         active_video_ids = list(DETECTED_VIDEOS.keys())
@@ -157,6 +166,14 @@ async def toggle_setting(request: Request, setting: str = Form(...), db: Session
                 elif setting == "giveaways":
                     streamer.giveaway_reminders_enabled = not streamer.giveaway_reminders_enabled
                     logger.info(f"[SETTINGS] Giveaway Reminders toggled to {streamer.giveaway_reminders_enabled}")
+                elif setting == "manual_mod_mode":
+                    current_mode = MANUAL_MOD_MODE.get(streamer_id, True)
+                    MANUAL_MOD_MODE[streamer_id] = not current_mode
+                    logger.info(f"[SETTINGS] Manual Mod Mode toggled to {not current_mode}")
+                elif setting == "ai_observer_mode":
+                    current_mode = AI_OBSERVER_MODE.get(streamer_id, True)
+                    AI_OBSERVER_MODE[streamer_id] = not current_mode
+                    logger.info(f"[SETTINGS] AI Observer Mode toggled to {not current_mode}")
                 db.commit()
         return RedirectResponse(url="/", status_code=303)
     except Exception as e:
@@ -744,7 +761,7 @@ async def process_chat_message(
             (trust and (trust.is_whitelisted or trust.trust_score > 85.0))
         )
 
-        valid_mgmt_cmds = {"!adduk", "!edituk", "!deluk", "!reptuk", "!checkup"}
+        valid_mgmt_cmds = {"!adduk", "!edituk", "!deluk", "!reptuk", "!checkup", "!cheakup"}
 
         if words_lower:
             cmd = words_lower[0]
@@ -823,7 +840,7 @@ async def process_chat_message(
             elif cmd in valid_mgmt_cmds and is_authorized_mod:
                 action = cmd
                 
-                if action == "!checkup":
+                if action in ["!checkup", "!cheakup"]:
                     bot_response = "🤖 MOD CHECKUP: 1. !adduk !test hi 2. !edituk !test yo 3. !deluk !test 4. !reptuk !test 5 5. !next | Bugs? Dev Discord: 998489383239946292"
                     logger.info(f"[SESSION:{session_id}] [REPLY] !checkup result: {bot_response}")
                     return {"verdict": "Safe", "action": "Reply", "bot_response": bot_response}

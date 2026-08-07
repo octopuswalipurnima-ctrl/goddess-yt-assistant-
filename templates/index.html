@@ -130,14 +130,14 @@
             <h2 style="margin: 0;">Welcome, {{ streamer_name }}!</h2>
             <p style="color: #9ca3af; margin-top: 5px;">Your dashboard is active and synced.</p>
         </div>
-        <div class="card bg-dark border-secondary p-3 mt-4">
-    <h5 class="text-white fw-bold">🔗 Instant Bot Deployment</h5>
-    <p class="text-secondary small mb-2">Bypass automatic detection. Paste your YouTube stream link here to force the bot into your chat instantly.</p>
-    <form action="/api/deploy-bot" method="POST" class="d-flex gap-2">
-        <input type="text" name="stream_url" class="form-control bg-dark text-white border-secondary" placeholder="Paste your YouTube Live URL here..." required>
-        <button type="submit" class="btn btn-outline-info fw-bold">Deploy Bot</button>
-    </form>
-</div>
+        <div class="panel" style="border-top: 4px solid #3b82f6;">
+            <h3 style="color: #3b82f6;">🔗 Instant Bot Deployment</h3>
+            <p style="color: #9ca3af; margin-bottom: 15px; font-size: 0.9em;">Bypass automatic detection. Paste your YouTube stream link here to force the bot into your chat instantly.</p>
+            <form action="/api/deploy-bot" method="POST" style="display: flex; gap: 10px;">
+                <input type="text" name="stream_url" style="flex: 1; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" placeholder="Paste your YouTube Live URL here..." required>
+                <button type="submit" style="background: #3b82f6; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">Deploy Bot</button>
+            </form>
+        </div>
 
         <!-- 🚨 PANIC BUTTON PROTOCOL 🚨 -->
         <div style="margin-bottom: 30px; background: rgba(239, 68, 68, 0.1); border: 1px dashed #ef4444; padding: 20px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between;">
@@ -244,8 +244,6 @@
                 </div>
                 
                 <div id="queue-list" style="color: #9ca3af; font-family: monospace; font-size: 1.1em; line-height: 1.8;">
-                    <!-- Note: In a fully fleshed out dashboard, this would fetch the live DB list via AJAX. 
-                         For now, this provides the structure for the streamer. -->
                     <span style="color: #3b82f6;">#1</span> @RahulGamer99<br>
                     <span style="color: #6b7280;">#2</span> @BGMI_King<br>
                     <span style="color: #6b7280;">#3</span> @SniperElite_TV
@@ -636,22 +634,65 @@
 
         <!-- AI FEATURE TOGGLES -->
         <div class="panel">
-            <h3>Module Toggles</h3>
-            <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+            <h3>AI Control Modules</h3>
+            <p style="color: #9ca3af; margin-bottom: 20px;">Enable or disable core automated features of your bot.</p>
+            <div style="display: flex; flex-direction: column; gap: 15px;">
                 
-                <form action="/toggle-setting" method="POST">
-                    <input type="hidden" name="setting" value="ai_cohost">
-                    <button type="submit" style="background: {{ '#22c55e' if settings.ai_cohost_enabled else '#ef4444' }}; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em;">
-                        AI Co-Host: {{ 'ON' if settings.ai_cohost_enabled else 'OFF' }}
-                    </button>
-                </form>
+                <!-- AI Co-Host -->
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a32; padding: 15px; border-radius: 8px;">
+                    <div>
+                        <span style="color: white; font-weight: bold; display: block;">💬 AI Chat Co-Host</span>
+                        <span style="color: #9ca3af; font-size: 0.85em;">Bot will reply to users and automatically moderate spam.</span>
+                    </div>
+                    <form action="/toggle-setting" method="POST" style="margin: 0;">
+                        <input type="hidden" name="setting" value="ai_cohost">
+                        <button type="submit" style="background: {{ '#22c55e' if settings.ai_cohost_enabled else '#ef4444' }}; color: white; padding: 8px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
+                            {{ 'Enabled' if settings.ai_cohost_enabled else 'Disabled' }}
+                        </button>
+                    </form>
+                </div>
 
-                <form action="/toggle-setting" method="POST">
-                    <input type="hidden" name="setting" value="giveaways">
-                    <button type="submit" style="background: {{ '#22c55e' if settings.giveaway_reminders_enabled else '#ef4444' }}; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em;">
-                        Giveaway Reminders: {{ 'ON' if settings.giveaway_reminders_enabled else 'OFF' }}
-                    </button>
-                </form>
+                <!-- Manual Mod Mode -->
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a32; padding: 15px; border-radius: 8px;">
+                    <div>
+                        <span style="color: white; font-weight: bold; display: block;">🛡️ Manual Mod Approval</span>
+                        <span style="color: #9ca3af; font-size: 0.85em;">AI asks human mods via chat before banning viewers.</span>
+                    </div>
+                    <form action="/toggle-setting" method="POST" style="margin: 0;">
+                        <input type="hidden" name="setting" value="manual_mod_mode">
+                        <button type="submit" style="background: {{ '#22c55e' if settings.manual_mod_mode else '#ef4444' }}; color: white; padding: 8px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
+                            {{ 'Asking Mode' if settings.manual_mod_mode else 'Auto-Ban' }}
+                        </button>
+                    </form>
+                </div>
+
+                <!-- AI Observer -->
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a32; padding: 15px; border-radius: 8px;">
+                    <div>
+                        <span style="color: white; font-weight: bold; display: block;">🧠 AI Mod Observer (Learning)</span>
+                        <span style="color: #9ca3af; font-size: 0.85em;">AI silently observes mod actions to automatically learn your chat rules.</span>
+                    </div>
+                    <form action="/toggle-setting" method="POST" style="margin: 0;">
+                        <input type="hidden" name="setting" value="ai_observer_mode">
+                        <button type="submit" style="background: {{ '#0ea5e9' if settings.ai_observer_mode else '#4b5563' }}; color: white; padding: 8px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
+                            {{ 'Observing' if settings.ai_observer_mode else 'Offline' }}
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Giveaway Reminders -->
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a32; padding: 15px; border-radius: 8px;">
+                    <div>
+                        <span style="color: white; font-weight: bold; display: block;">🎁 Giveaway Reminders</span>
+                        <span style="color: #9ca3af; font-size: 0.85em;">Bot will occasionally prompt chat to enter active giveaways.</span>
+                    </div>
+                    <form action="/toggle-setting" method="POST" style="margin: 0;">
+                        <input type="hidden" name="setting" value="giveaways">
+                        <button type="submit" style="background: {{ '#22c55e' if settings.giveaway_reminders_enabled else '#ef4444' }}; color: white; padding: 8px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
+                            {{ 'Enabled' if settings.giveaway_reminders_enabled else 'Disabled' }}
+                        </button>
+                    </form>
+                </div>
 
             </div>
         </div>
