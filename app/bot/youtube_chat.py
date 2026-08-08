@@ -379,6 +379,26 @@ class YouTubeChatMonitor:
                             self.monitored_users[target]["strikes"] = max(0, self.monitored_users[target]["strikes"] - 1)
                     return
 
+
+            # AI Reply if bot's name is taken
+            if "goddess ai" in command_text or "goddess" in command_text:
+                if ai_cohost_enabled:
+                    # Implement rate limit for bot replies by tracking last reply time
+                    now = time.time()
+                    if streamer_id not in self.monitored_users:
+                        self.monitored_users[streamer_id] = {}
+                    if 'last_bot_reply' not in self.monitored_users[streamer_id]:
+                        self.monitored_users[streamer_id]['last_bot_reply'] = 0
+
+                    if now - self.monitored_users[streamer_id]['last_bot_reply'] > 60: # Max 1 reply per minute per stream
+                        # Generate reaction
+                        recent_logs = db.query(ChatLog).filter(ChatLog.stream_id == streamer_id).order_by(ChatLog.timestamp.desc()).limit(5).all()
+                        context = [{"username": log.user.username, "text": log.message} for log in reversed(recent_logs)]
+                        reaction = await self.ai.generate_chat_reaction([], context)
+                        if reaction:
+                            await self.send_message(reaction, live_chat_id)
+                            self.monitored_users[streamer_id]['last_bot_reply'] = now
+
             # 2. AUTOMATED MODERATION (Spam, Banned Words, and Learned Rules)
             if any(word in text_words for word in self.banned_words):
                 await self.delete_message(message_id)
@@ -572,49 +592,62 @@ class YouTubeChatMonitor:
                             if is_guest: await self.send_message("👋 Hello! Goddess AI (Guest Mode) has successfully connected to the chat!", chat_id)
                             else: await self.send_message("🤖 mod hajir hai janab uk malik ki kami nhi hone dega 😁😸 (Mods type !checkup)", chat_id)
                 
-                for streamer_key in list(self.active_streams.keys()):
-                    chat_info = self.active_streams[streamer_key]
-                    chat_id = chat_info["chat_id"] if isinstance(chat_info, dict) else chat_info
-                    token = self.next_page_tokens.get(chat_id)
-                    is_guest = self.stream_modes.get(streamer_key) == "guest"
-                    
-                    webhook_url = None
-                    if not is_guest:
-                        st_record = db.query(Streamer).filter(Streamer.id == streamer_key).first()
-                        if st_record: webhook_url = st_record.discord_webhook_url
-                    
+
+                async def fetch_and_process(streamer_key):
+                    db_session = SessionLocal()
                     try:
-                        sys_state = db.query(SystemState).first()
-                        if sys_state and sys_state.youtube_api_calls >= sys_state.youtube_api_cap: continue
+                        chat_info = self.active_streams[streamer_key]
+                        chat_id = chat_info["chat_id"] if isinstance(chat_info, dict) else chat_info
+                        token = self.next_page_tokens.get(chat_id)
+                        is_guest = self.stream_modes.get(streamer_key) == "guest"
 
-                        response = self.youtube.liveChatMessages().list(liveChatId=chat_id, part="snippet,authorDetails", pageToken=token).execute()
+                        webhook_url = None
+                        if not is_guest:
+                            st_record = db_session.query(Streamer).filter(Streamer.id == streamer_key).first()
+                            if st_record: webhook_url = st_record.discord_webhook_url
 
-                        if sys_state:
-                            sys_state.youtube_api_calls += 1
-                            db.commit()
+                        try:
+                            sys_state = db_session.query(SystemState).first()
+                            if sys_state and sys_state.youtube_api_calls >= sys_state.youtube_api_cap: return
 
-                        self.next_page_tokens[chat_id] = response.get("nextPageToken")
-                        
-                        for item in response.get("items", []):
-                            snippet = item["snippet"]
-                            event_type = snippet["type"]
+                            def execute_request():
+                                local_youtube = build('youtube', 'v3', credentials=self.credentials)
+                                return local_youtube.liveChatMessages().list(liveChatId=chat_id, part="snippet,authorDetails", pageToken=token).execute()
+
+                            response = await asyncio.to_thread(execute_request)
+
+                            if sys_state:
+                                sys_state.youtube_api_calls += 1
+                                db_session.commit()
+
+                            self.next_page_tokens[chat_id] = response.get("nextPageToken")
                             
-                            if event_type == "textMessageEvent":
-                                await self.process_message(item["authorDetails"]["channelId"], item["authorDetails"]["displayName"], snippet["textMessageDetails"]["messageText"], item["id"], streamer_key, chat_id, item["authorDetails"].get("isChatModerator", False) or item["authorDetails"].get("isChatOwner", False), is_guest)
-                            
-                            # --- AI OBSERVER LOGIC FOR NATIVE YOUTUBE BANS ---
-                            elif event_type == "userBannedEvent" and not is_guest:
-                                banned_details = snippet.get("userBannedDetails", {})
-                                banned_user = banned_details.get("bannedUserDetails", {})
-                                ban_type = banned_details.get("banType", "unknown")
-                                target_id = banned_user.get("channelId")
-                                target_name = banned_user.get("displayName")
-                                await self.observe_and_learn(f"Native YouTube {ban_type.capitalize()} Ban", target_name, target_id, streamer_key, webhook_url)
+                            for item in response.get("items", []):
+                                snippet = item["snippet"]
+                                event_type = snippet["type"]
+
+                                if event_type == "textMessageEvent":
+                                    await self.process_message(item["authorDetails"]["channelId"], item["authorDetails"]["displayName"], snippet["textMessageDetails"]["messageText"], item["id"], streamer_key, chat_id, item["authorDetails"].get("isChatModerator", False) or item["authorDetails"].get("isChatOwner", False), is_guest)
                                 
-                    except Exception:
-                        del self.active_streams[streamer_key]
-                        if streamer_key in self.stream_modes: del self.stream_modes[streamer_key]
+                                # --- AI OBSERVER LOGIC FOR NATIVE YOUTUBE BANS ---
+                                elif event_type == "userBannedEvent" and not is_guest:
+                                    banned_details = snippet.get("userBannedDetails", {})
+                                    banned_user = banned_details.get("bannedUserDetails", {})
+                                    ban_type = banned_details.get("banType", "unknown")
+                                    target_id = banned_user.get("channelId")
+                                    target_name = banned_user.get("displayName")
+                                    await self.observe_and_learn(f"Native YouTube {ban_type.capitalize()} Ban", target_name, target_id, streamer_key, webhook_url)
 
+                        except Exception as e:
+                            print(f"[YOUTUBE CHAT LOOP ERROR] {e}")
+                            del self.active_streams[streamer_key]
+                            if streamer_key in self.stream_modes: del self.stream_modes[streamer_key]
+                    finally:
+                        db_session.close()
+
+                tasks = [fetch_and_process(streamer_key) for streamer_key in list(self.active_streams.keys())]
+                if tasks:
+                    await asyncio.gather(*tasks)
             except Exception: pass
             finally: db.close()
             
