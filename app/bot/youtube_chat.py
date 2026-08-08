@@ -324,7 +324,7 @@ class YouTubeChatMonitor:
             manual_mod_approval = MANUAL_MOD_MODE.get(effective_id, True)
             ai_cohost_enabled = getattr(streamer, 'ai_cohost_enabled', True)
 
-            # 1. MODERATOR COMMANDS (ADDING CHAT COMMAND MANAGERS)
+            # 1. MODERATOR COMMANDS
             if is_mod and command_text.startswith("!"):
                 parts = command_text.split(" ")
                 command = parts[0]
@@ -382,7 +382,6 @@ class YouTubeChatMonitor:
                         action_data = PENDING_ACTIONS[target]
                         strikes = action_data["strikes"]
                         
-                        # 🛠️ Now that a mod approved the punish, we actually delete the message
                         if "msg_id" in action_data:
                             await self.delete_message(action_data["msg_id"])
                         
@@ -404,22 +403,36 @@ class YouTubeChatMonitor:
                             self.monitored_users[target]["strikes"] = max(0, self.monitored_users[target]["strikes"] - 1)
                     return
 
-            # AI Reply
-            if "goddess ai" in command_text or "goddess" in command_text:
+            # ---------------------------------------------------------
+            # 💬 AI CHAT CO-HOST: DIRECT QUESTION & ANSWER SYSTEM
+            # ---------------------------------------------------------
+            bot_names = ["goddess", "goddess ai", "@goddess", "bot"]
+            
+            if any(name in command_text for name in bot_names):
                 if ai_cohost_enabled:
                     now = time.time()
                     if effective_id not in self.monitored_users:
                         self.monitored_users[effective_id] = {}
-                    if 'last_bot_reply' not in self.monitored_users[effective_id]:
-                        self.monitored_users[effective_id]['last_bot_reply'] = 0
+                        
+                    last_reply_time = self.monitored_users[effective_id].get('last_bot_reply', 0)
 
-                    if now - self.monitored_users[effective_id]['last_bot_reply'] > 60:
-                        recent_logs = db.query(ChatLog).filter(ChatLog.streamer_id == effective_id).order_by(ChatLog.timestamp.desc()).limit(5).all()
+                    # 15-SECOND RATE LIMIT: Fast enough to chat, slow enough to block spam
+                    if now - last_reply_time > 15:
+                        # Grab the recent chat context
+                        recent_logs = db.query(ChatLog).filter(ChatLog.streamer_id == effective_id).order_by(ChatLog.timestamp.desc()).limit(6).all()
                         context = [{"username": log.user.username, "text": log.message} for log in reversed(recent_logs)]
-                        reaction = await self.ai.generate_chat_reaction([], context)
+                        
+                        # Tell Gemini exactly who is asking and what they said
+                        direct_prompt = [f"User '{username}' is directly talking to you. They said: '{message_text}'. Reply to them naturally and answer their question."]
+                        
+                        reaction = await self.ai.generate_chat_reaction(direct_prompt, context)
+                        
                         if reaction:
-                            await self.send_message(reaction, live_chat_id)
+                            # Automatically tag the user who asked the question
+                            clean_reaction = reaction.replace(f"@{username}", "").strip()
+                            await self.send_message(f"@{username} {clean_reaction}", live_chat_id)
                             self.monitored_users[effective_id]['last_bot_reply'] = now
+
 
             # 2. AUTOMATED MODERATION
             if any(word in text_words for word in self.banned_words):
@@ -459,11 +472,9 @@ class YouTubeChatMonitor:
                         user_data["strikes"] += 1
                         
                         if manual_mod_approval:
-                            # 🛠️ BUG FIXED: We no longer delete the message here! We just save the message_id and ask the Mods!
                             PENDING_ACTIONS[clean_target] = {"yt_id": yt_user_id, "strikes": user_data["strikes"], "msg_id": message_id}
                             await self.send_message(f"⚠️ [AI WARNING] @{username} flagged. Mods: type '!punish @{username}' or '!ignore @{username}'", live_chat_id)
                         else:
-                            # Auto-Mode is enabled, so it deletes instantly
                             await self.delete_message(message_id)
                             if user_data["strikes"] == 1: await self.send_message(f"⚠️ @{username}, warning for inappropriate behavior.", live_chat_id)
                             elif user_data["strikes"] >= 2:
