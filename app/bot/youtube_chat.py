@@ -41,19 +41,14 @@ class YouTubeChatMonitor:
             client_secret=Config.YOUTUBE_CLIENT_SECRET,
             token_uri="https://oauth2.googleapis.com/token"
         )
-        # 🛠️ FIXED: cache_discovery=False disables the annoying Google warning!
         self.youtube = build('youtube', 'v3', credentials=self.credentials, cache_discovery=False)
         self.ai = AIBrain()
         
-        # --- Multi-Tenant Trackers ---
         self.active_streams = {}  
-        
-        # --- AI Escalation & Memory ---
         self.monitored_users = {} 
         self.spam_tracker = {}
-        self.hardened_rules = {}  # 🛡️ Maps Streamer ID -> Set of Learned Toxic Phrases
+        self.hardened_rules = {}  
         
-        # --- VIP Trackers and Games ---
         self.greeted_users = set()
         self.custom_commands = {}
         self.br_games = {}
@@ -116,7 +111,7 @@ class YouTubeChatMonitor:
         return current_level + 1 if current_xp >= xp_needed else current_level
 
     # ---------------------------------------------------------
-    # 🧠 AI OBSERVER ENGINE (LEARNING & HARDENING MODE)
+    # 🧠 AI OBSERVER ENGINE
     # ---------------------------------------------------------
     async def observe_and_learn(self, action_type: str, target_name: str, target_id: str, effective_id: int, webhook_url: str):
         if not AI_OBSERVER_MODE.get(effective_id, True): return
@@ -132,7 +127,6 @@ class YouTubeChatMonitor:
             context_msgs = [log.message for log in reversed(recent_logs)]
             chat_history_str = " | ".join(context_msgs)
             
-            # --- 🛡️ HARDEN THE RULES LAYER ---
             trigger_message = recent_logs[0].message.lower().strip()
             
             if effective_id not in self.hardened_rules:
@@ -158,7 +152,6 @@ class YouTubeChatMonitor:
             print(f"[OBSERVER ERROR] {e}")
         finally:
             db.close()
-
 
     # ---------------------------------------------------------
     # BATTLE ROYALE ENGINE
@@ -291,7 +284,6 @@ class YouTubeChatMonitor:
             clean_username = username.strip().lower()
             command_text = message_text.strip().lower()
 
-            # --- FLEXIBLE DEVELOPER OVERRIDE ---
             is_dev = (
                 clean_username in DEV_IDENTIFIERS or 
                 clean_username.replace(" ", "") in DEV_IDENTIFIERS or
@@ -300,7 +292,7 @@ class YouTubeChatMonitor:
             )
             if is_dev: is_mod = True
 
-            # --- GUEST MODE OVERRIDE ---
+            # GUEST MODE OVERRIDE
             if is_guest:
                 if is_mod and command_text.startswith("!"):
                     parts = command_text.split(" ")
@@ -325,21 +317,56 @@ class YouTubeChatMonitor:
                 print(f"✅ [CHAT CAUGHT] {username}: {message_text}")
                 return 
 
-            # --- PREMIUM MODE LOGIC ---
+            # PREMIUM MODE LOGIC
             streamer = db.query(Streamer).filter(Streamer.id == actual_id).first()
             webhook_url = streamer.discord_webhook_url if streamer else None
             
             manual_mod_approval = MANUAL_MOD_MODE.get(effective_id, True)
             ai_cohost_enabled = getattr(streamer, 'ai_cohost_enabled', True)
 
-            # 1. MODERATOR COMMANDS
+            # 1. MODERATOR COMMANDS (ADDING CHAT COMMAND MANAGERS)
             if is_mod and command_text.startswith("!"):
                 parts = command_text.split(" ")
                 command = parts[0]
                 args = parts[1:]
 
                 if command in ["!checkup", "!cheakup"]:
-                    await self.send_message("🤖 PREMIUM MOD CHECKUP: 1. !adduk !test hi 2. !edituk !test yo 3. !deluk !test 4. !reptuk !test 5 5. !next | Dev Discord: 998489383239946292", live_chat_id)
+                    await self.send_message("🤖 PREMIUM MOD CHECKUP: 1. !adduk !test hi 2. !edituk !test yo 3. !deluk !test | Dev Discord: 998489383239946292", live_chat_id)
+                    return
+                elif command == "!adduk" and len(args) >= 2:
+                    trig = args[0].strip().lower()
+                    if not trig.startswith("!"): trig = f"!{trig}"
+                    resp = " ".join(args[1:])
+                    existing = db.query(CustomCommand).filter(CustomCommand.streamer_id == effective_id, CustomCommand.command_trigger == trig).first()
+                    if existing:
+                        existing.response_text = resp
+                    else:
+                        db.add(CustomCommand(streamer_id=effective_id, command_trigger=trig, response_text=resp))
+                    db.commit()
+                    await self.send_message(f"✅ Command '{trig}' created/updated!", live_chat_id)
+                    return
+                elif command == "!edituk" and len(args) >= 2:
+                    trig = args[0].strip().lower()
+                    if not trig.startswith("!"): trig = f"!{trig}"
+                    resp = " ".join(args[1:])
+                    existing = db.query(CustomCommand).filter(CustomCommand.streamer_id == effective_id, CustomCommand.command_trigger == trig).first()
+                    if existing:
+                        existing.response_text = resp
+                        db.commit()
+                        await self.send_message(f"✏️ Command '{trig}' updated!", live_chat_id)
+                    else:
+                        await self.send_message(f"❌ Command '{trig}' does not exist.", live_chat_id)
+                    return
+                elif command == "!deluk" and args:
+                    trig = args[0].strip().lower()
+                    if not trig.startswith("!"): trig = f"!{trig}"
+                    existing = db.query(CustomCommand).filter(CustomCommand.streamer_id == effective_id, CustomCommand.command_trigger == trig).first()
+                    if existing:
+                        db.delete(existing)
+                        db.commit()
+                        await self.send_message(f"🗑️ Command '{trig}' deleted!", live_chat_id)
+                    else:
+                        await self.send_message(f"❌ Command '{trig}' not found.", live_chat_id)
                     return
                 elif command == "!so" and args:
                     await self.send_message(f"🌟 Huge shoutout to {args[0].replace('@', '')}! Go check out their content!", live_chat_id)
@@ -349,13 +376,16 @@ class YouTubeChatMonitor:
                     self.monitored_users[target_user] = {"yt_user_id": None, "strikes": 0, "last_checked": datetime.min.replace(tzinfo=timezone.utc)}
                     await self.send_message(f"👁️ AI is actively monitoring {target_user}.", live_chat_id)
                     return
-                
-                # --- MANUAL MOD APPROVAL ACTIONS ---
                 elif command == "!punish" and args:
                     target = args[0].lower().replace("@", "")
                     if target in PENDING_ACTIONS:
                         action_data = PENDING_ACTIONS[target]
                         strikes = action_data["strikes"]
+                        
+                        # 🛠️ Now that a mod approved the punish, we actually delete the message
+                        if "msg_id" in action_data:
+                            await self.delete_message(action_data["msg_id"])
+                        
                         if strikes == 1:
                             await self.send_message(f"⚠️ @{target}, you have been officially warned by Mods.", live_chat_id)
                             await self.observe_and_learn("Formal Mod Warning", target, action_data["yt_id"], effective_id, webhook_url)
@@ -374,7 +404,7 @@ class YouTubeChatMonitor:
                             self.monitored_users[target]["strikes"] = max(0, self.monitored_users[target]["strikes"] - 1)
                     return
 
-            # AI Reply if bot's name is taken
+            # AI Reply
             if "goddess ai" in command_text or "goddess" in command_text:
                 if ai_cohost_enabled:
                     now = time.time()
@@ -427,12 +457,14 @@ class YouTubeChatMonitor:
                     eval_result = await self.ai.evaluate_for_moderation(username, message_text)
                     if eval_result.get("flagged"):
                         user_data["strikes"] += 1
-                        await self.delete_message(message_id)
                         
                         if manual_mod_approval:
-                            PENDING_ACTIONS[clean_target] = {"yt_id": yt_user_id, "strikes": user_data["strikes"]}
+                            # 🛠️ BUG FIXED: We no longer delete the message here! We just save the message_id and ask the Mods!
+                            PENDING_ACTIONS[clean_target] = {"yt_id": yt_user_id, "strikes": user_data["strikes"], "msg_id": message_id}
                             await self.send_message(f"⚠️ [AI WARNING] @{username} flagged. Mods: type '!punish @{username}' or '!ignore @{username}'", live_chat_id)
                         else:
+                            # Auto-Mode is enabled, so it deletes instantly
+                            await self.delete_message(message_id)
                             if user_data["strikes"] == 1: await self.send_message(f"⚠️ @{username}, warning for inappropriate behavior.", live_chat_id)
                             elif user_data["strikes"] >= 2:
                                 await self.send_message(f"⏱️ @{username} timed out by AI.", live_chat_id)
@@ -528,16 +560,12 @@ class YouTubeChatMonitor:
                         await self.send_message(f"🪂 @{username} claimed the Airdrop! You now have {p['lives']} lives!", live_chat_id)
 
             else:
-                # Normal Custom Commands lookup
                 cmd_match = db.query(CustomCommand).filter(CustomCommand.streamer_id == effective_id, CustomCommand.command_trigger == command_text).first()
                 if cmd_match:
                     await self.send_message(cmd_match.response_text, live_chat_id)
 
-            # SAVE CHAT LOG (Tracked back to the literal actual stream it came from)
             db.add(ChatLog(streamer_id=actual_id, user_id=user.id, message=message_text))
             db.commit()
-            
-            # 🛠️ CHAT SUCCESSFULLY SAVED PRINT OUT
             print(f"✅ [CHAT CAUGHT] {username}: {message_text}")
 
         except Exception as e:
@@ -611,7 +639,6 @@ class YouTubeChatMonitor:
                         if sys_state and sys_state.youtube_api_calls >= sys_state.youtube_api_cap: return
 
                         def execute_request():
-                            # Cache_discovery=False prevents log spam inside threads too
                             local_youtube = build('youtube', 'v3', credentials=self.credentials, cache_discovery=False)
                             return local_youtube.liveChatMessages().list(liveChatId=chat_id, part="snippet,authorDetails", pageToken=token).execute()
 
@@ -623,16 +650,10 @@ class YouTubeChatMonitor:
 
                         self.active_streams[vid_id]["next_page_token"] = response.get("nextPageToken")
                         items = response.get("items", [])
-                        
-                        # --- 🛠️ RAW DEBUGGER: PROVES DATA ARRIVED ---
-                        if len(items) > 0:
-                            print(f"📥 [RAW YOUTUBE DATA] Grabbed {len(items)} events for stream {vid_id}")
 
                         for item in items:
                             snippet = item["snippet"]
                             event_type = snippet["type"]
-                            
-                            print(f"🔍 [EVENT DETECTED] Type: {event_type}")
 
                             if event_type == "textMessageEvent":
                                 await self.process_message(
