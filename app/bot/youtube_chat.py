@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
 from app.database.connection import SessionLocal
-from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState
+from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState, CustomCommand
 from app.ai.generator import AIBrain
 from app.utils.config import Config
 from app.services.websocket import overlay_manager
@@ -20,12 +20,10 @@ from app.services.websocket import overlay_manager
 DETECTED_VIDEOS = {}  
 DISCONNECT_QUEUE = set()
 
-# Feature Separation Globals
 MANUAL_MOD_MODE = {}    # Asking Mode (Default: True)
 AI_OBSERVER_MODE = {}   # Learning Mode (Default: True)
 PENDING_ACTIONS = {}
 
-# Exact lowercased identifiers for Dev Override
 DEV_IDENTIFIERS = {
     "@uk_hi_kahda", "uk_hi_kahda", "uk hi kahda", "ukhikahda",
     "@goddessislive", "goddessislive", "goddess live",
@@ -43,13 +41,12 @@ class YouTubeChatMonitor:
             client_secret=Config.YOUTUBE_CLIENT_SECRET,
             token_uri="https://oauth2.googleapis.com/token"
         )
-        self.youtube = build('youtube', 'v3', credentials=self.credentials)
+        # 🛠️ FIXED: cache_discovery=False disables the annoying Google warning!
+        self.youtube = build('youtube', 'v3', credentials=self.credentials, cache_discovery=False)
         self.ai = AIBrain()
         
         # --- Multi-Tenant Trackers ---
         self.active_streams = {}  
-        self.next_page_tokens = {} 
-        self.stream_modes = {}
         
         # --- AI Escalation & Memory ---
         self.monitored_users = {} 
@@ -93,26 +90,26 @@ class YouTubeChatMonitor:
         try:
             await asyncio.to_thread(_execute_send)
             print(f"[YOUTUBE CHAT SENT]: {text}")
-        except Exception as e: print(f"[YOUTUBE SEND ERROR]: {e}")
+        except Exception as e: print(f"🚨 [YOUTUBE SEND ERROR]: {e}")
 
     async def delete_message(self, message_id: str):
         if not message_id: return
         try: await asyncio.to_thread(lambda: self.youtube.liveChatMessages().delete(id=message_id).execute())
-        except Exception as e: print(f"[YOUTUBE DELETE ERROR]: {e}")
+        except Exception: pass
 
     async def timeout_user(self, live_chat_id: str, channel_id: str, duration_seconds: int = 300):
         if not live_chat_id or not channel_id: return
         try: await asyncio.to_thread(lambda: self.youtube.liveChatBans().insert(
                 part="snippet", body={"snippet": {"liveChatId": live_chat_id, "type": "temporary", "temporaryBanDurationMinutes": int(duration_seconds / 60), "bannedUserDetails": {"channelId": channel_id}}}
             ).execute())
-        except Exception as e: print(f"[YOUTUBE TIMEOUT ERROR]: {e}")
+        except Exception: pass
 
     async def ban_user(self, live_chat_id: str, channel_id: str):
         if not live_chat_id or not channel_id: return
         try: await asyncio.to_thread(lambda: self.youtube.liveChatBans().insert(
                 part="snippet", body={"snippet": {"liveChatId": live_chat_id, "type": "permanent", "bannedUserDetails": {"channelId": channel_id}}}
             ).execute())
-        except Exception as e: print(f"[YOUTUBE BAN ERROR]: {e}")
+        except Exception: pass
 
     def calculate_level_up(self, current_xp: int, current_level: int) -> int:
         xp_needed = current_level * 150
@@ -121,16 +118,15 @@ class YouTubeChatMonitor:
     # ---------------------------------------------------------
     # 🧠 AI OBSERVER ENGINE (LEARNING & HARDENING MODE)
     # ---------------------------------------------------------
-    async def observe_and_learn(self, action_type: str, target_name: str, target_id: str, streamer_id: int, webhook_url: str):
-        if not AI_OBSERVER_MODE.get(streamer_id, True): return
+    async def observe_and_learn(self, action_type: str, target_name: str, target_id: str, effective_id: int, webhook_url: str):
+        if not AI_OBSERVER_MODE.get(effective_id, True): return
         
         db = SessionLocal()
         try:
             user = db.query(User).filter(User.youtube_id == target_id).first()
             if not user: return
             
-            # Fetch context
-            recent_logs = db.query(ChatLog).filter(ChatLog.stream_id == streamer_id, ChatLog.user_id == user.id).order_by(ChatLog.timestamp.desc()).limit(3).all()
+            recent_logs = db.query(ChatLog).filter(ChatLog.streamer_id == effective_id, ChatLog.user_id == user.id).order_by(ChatLog.timestamp.desc()).limit(3).all()
             if not recent_logs: return
             
             context_msgs = [log.message for log in reversed(recent_logs)]
@@ -139,22 +135,20 @@ class YouTubeChatMonitor:
             # --- 🛡️ HARDEN THE RULES LAYER ---
             trigger_message = recent_logs[0].message.lower().strip()
             
-            if streamer_id not in self.hardened_rules:
-                self.hardened_rules[streamer_id] = set()
+            if effective_id not in self.hardened_rules:
+                self.hardened_rules[effective_id] = set()
                 
-            # Only harden rules that are meaningful (more than 3 chars) to avoid banning common words
             if len(trigger_message) > 3:
-                self.hardened_rules[streamer_id].add(trigger_message)
+                self.hardened_rules[effective_id].add(trigger_message)
                 hardened_status = f"`{trigger_message}` permanently added to Layer 1 Strict Blocklist."
             else:
-                hardened_status = "Context too short for absolute strict filtering. Logged for context only."
+                hardened_status = "Context too short for absolute strict filtering."
 
             insight = (
                 f"**Observed Rule Enforcement:**\n"
                 f"Moderator executed `{action_type}` against {target_name}.\n\n"
                 f"**Contextual Chat History:**\n\"{chat_history_str}\"\n\n"
                 f"**🛡️ Rules Layer Hardened:**\n{hardened_status}\n"
-                f"Future identical messages will bypass Asking Mode and be punished instantly."
             )
             
             print(f"[AI OBSERVER] Learned from action on {target_name}. Rule Layer Hardened.")
@@ -233,7 +227,7 @@ class YouTubeChatMonitor:
     # ---------------------------------------------------------
     # DONATION PROCESSOR
     # ---------------------------------------------------------
-    async def handle_support_event(self, event_type: str, snippet: dict, author_name: str, yt_user_id: str, streamer_id, live_chat_id: str, is_guest: bool = False):
+    async def handle_support_event(self, event_type: str, snippet: dict, author_name: str, yt_user_id: str, actual_id: int, effective_id: int, live_chat_id: str, is_guest: bool = False):
         db = SessionLocal() if not is_guest else None
         try:
             message = ""
@@ -266,7 +260,7 @@ class YouTubeChatMonitor:
                     user = User(youtube_id=yt_user_id, username=author_name)
                     db.add(user)
                     db.flush() 
-                    db.add(XP(user_id=user.id, streamer_id=streamer_id, current_xp=0, level=1, total_messages=0))
+                    db.add(XP(user_id=user.id, streamer_id=effective_id, current_xp=0, level=1, total_messages=0))
                     db.add(Coin(user_id=user.id, balance=0, lifetime_earned=0))
                     db.add(DiscordLink(user_id=user.id, sync_code=f"GODDESS-{secrets.token_hex(2).upper()}"))
                     db.commit()
@@ -276,7 +270,7 @@ class YouTubeChatMonitor:
                     user.coins[0].lifetime_earned += coin_bonus
                     db.commit()
 
-                streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+                streamer = db.query(Streamer).filter(Streamer.id == actual_id).first()
                 if streamer and streamer.server_sync_code:
                     alert_payload = {"type": "alert", "event_type": event_type, "author": author_name, "message": message, "amount": amount_str}
                     await overlay_manager.send_alert(streamer.server_sync_code, alert_payload)
@@ -290,7 +284,7 @@ class YouTubeChatMonitor:
     # ---------------------------------------------------------
     # CORE MESSAGE PROCESSOR
     # ---------------------------------------------------------
-    async def process_message(self, yt_user_id: str, username: str, message_text: str, message_id: str, streamer_id, live_chat_id: str, is_mod: bool, is_guest: bool = False):
+    async def process_message(self, yt_user_id: str, username: str, message_text: str, message_id: str, actual_id: int, effective_id: int, live_chat_id: str, is_mod: bool, is_guest: bool = False):
         db = SessionLocal() if not is_guest else None
         try:
             text_words = message_text.lower().split()
@@ -314,7 +308,7 @@ class YouTubeChatMonitor:
                     args = parts[1:]
                     
                     if cmd in ["!checkup", "!cheakup"]:
-                        await self.send_message("🤖 MOD CHECKUP: 1. !so 2. !giveaway start 3. /goddess !cmd response | Dev Discord: 998489383239946292", live_chat_id)
+                        await self.send_message("🤖 GUEST MOD CHECKUP: 1. !so 2. !giveaway start 3. /goddess !cmd response | Dev Discord: 998489383239946292", live_chat_id)
                     elif cmd == "!so" and args:
                         await self.send_message(f"🌟 Huge shoutout to {args[0].replace('@', '')}!", live_chat_id)
                     elif cmd == "!giveaway" and args and args[0] == "start":
@@ -327,14 +321,15 @@ class YouTubeChatMonitor:
                         await self.send_message(f"✅ Command '{parts[1].lower()}' is live!", live_chat_id)
                 elif command_text in self.custom_commands:
                     await self.send_message(self.custom_commands[command_text], live_chat_id)
+                
+                print(f"✅ [CHAT CAUGHT] {username}: {message_text}")
                 return 
 
             # --- PREMIUM MODE LOGIC ---
-            streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+            streamer = db.query(Streamer).filter(Streamer.id == actual_id).first()
             webhook_url = streamer.discord_webhook_url if streamer else None
             
-            # The independent web toggles
-            manual_mod_approval = MANUAL_MOD_MODE.get(streamer_id, True)
+            manual_mod_approval = MANUAL_MOD_MODE.get(effective_id, True)
             ai_cohost_enabled = getattr(streamer, 'ai_cohost_enabled', True)
 
             # 1. MODERATOR COMMANDS
@@ -344,7 +339,7 @@ class YouTubeChatMonitor:
                 args = parts[1:]
 
                 if command in ["!checkup", "!cheakup"]:
-                    await self.send_message("🤖 MOD CHECKUP: 1. !adduk !test hi 2. !edituk !test yo 3. !deluk !test 4. !reptuk !test 5 5. !next | Dev Discord: 998489383239946292", live_chat_id)
+                    await self.send_message("🤖 PREMIUM MOD CHECKUP: 1. !adduk !test hi 2. !edituk !test yo 3. !deluk !test 4. !reptuk !test 5 5. !next | Dev Discord: 998489383239946292", live_chat_id)
                     return
                 elif command == "!so" and args:
                     await self.send_message(f"🌟 Huge shoutout to {args[0].replace('@', '')}! Go check out their content!", live_chat_id)
@@ -355,7 +350,7 @@ class YouTubeChatMonitor:
                     await self.send_message(f"👁️ AI is actively monitoring {target_user}.", live_chat_id)
                     return
                 
-                # --- MANUAL MOD APPROVAL ACTIONS (WITH OBSERVER LOGGING) ---
+                # --- MANUAL MOD APPROVAL ACTIONS ---
                 elif command == "!punish" and args:
                     target = args[0].lower().replace("@", "")
                     if target in PENDING_ACTIONS:
@@ -363,11 +358,11 @@ class YouTubeChatMonitor:
                         strikes = action_data["strikes"]
                         if strikes == 1:
                             await self.send_message(f"⚠️ @{target}, you have been officially warned by Mods.", live_chat_id)
-                            await self.observe_and_learn("Formal Mod Warning", target, action_data["yt_id"], streamer_id, webhook_url)
+                            await self.observe_and_learn("Formal Mod Warning", target, action_data["yt_id"], effective_id, webhook_url)
                         elif strikes >= 2:
                             await self.send_message(f"⏱️ @{target} timed out by Mods.", live_chat_id)
                             await self.timeout_user(live_chat_id, action_data["yt_id"], 300)
-                            await self.observe_and_learn("Mod 5-Minute Timeout", target, action_data["yt_id"], streamer_id, webhook_url)
+                            await self.observe_and_learn("Mod 5-Minute Timeout", target, action_data["yt_id"], effective_id, webhook_url)
                         del PENDING_ACTIONS[target]
                     return
                 elif command == "!ignore" and args:
@@ -379,38 +374,34 @@ class YouTubeChatMonitor:
                             self.monitored_users[target]["strikes"] = max(0, self.monitored_users[target]["strikes"] - 1)
                     return
 
-
             # AI Reply if bot's name is taken
             if "goddess ai" in command_text or "goddess" in command_text:
                 if ai_cohost_enabled:
-                    # Implement rate limit for bot replies by tracking last reply time
                     now = time.time()
-                    if streamer_id not in self.monitored_users:
-                        self.monitored_users[streamer_id] = {}
-                    if 'last_bot_reply' not in self.monitored_users[streamer_id]:
-                        self.monitored_users[streamer_id]['last_bot_reply'] = 0
+                    if effective_id not in self.monitored_users:
+                        self.monitored_users[effective_id] = {}
+                    if 'last_bot_reply' not in self.monitored_users[effective_id]:
+                        self.monitored_users[effective_id]['last_bot_reply'] = 0
 
-                    if now - self.monitored_users[streamer_id]['last_bot_reply'] > 60: # Max 1 reply per minute per stream
-                        # Generate reaction
-                        recent_logs = db.query(ChatLog).filter(ChatLog.stream_id == streamer_id).order_by(ChatLog.timestamp.desc()).limit(5).all()
+                    if now - self.monitored_users[effective_id]['last_bot_reply'] > 60:
+                        recent_logs = db.query(ChatLog).filter(ChatLog.streamer_id == effective_id).order_by(ChatLog.timestamp.desc()).limit(5).all()
                         context = [{"username": log.user.username, "text": log.message} for log in reversed(recent_logs)]
                         reaction = await self.ai.generate_chat_reaction([], context)
                         if reaction:
                             await self.send_message(reaction, live_chat_id)
-                            self.monitored_users[streamer_id]['last_bot_reply'] = now
+                            self.monitored_users[effective_id]['last_bot_reply'] = now
 
-            # 2. AUTOMATED MODERATION (Spam, Banned Words, and Learned Rules)
+            # 2. AUTOMATED MODERATION
             if any(word in text_words for word in self.banned_words):
                 await self.delete_message(message_id)
                 self.send_discord_log(webhook_url, "Banned Word Filter", username, message_text, "Hardcoded blocklist")
                 return 
 
-            # --- 🛡️ LAYER 1.5: EXECUTE HARDENED LEARNED RULES ---
-            if streamer_id in self.hardened_rules:
-                if any(learned_rule in command_text for learned_rule in self.hardened_rules[streamer_id]):
+            if effective_id in self.hardened_rules:
+                if any(learned_rule in command_text for learned_rule in self.hardened_rules[effective_id]):
                     await self.delete_message(message_id)
                     await self.timeout_user(live_chat_id, yt_user_id, 300)
-                    self.send_discord_log(webhook_url, "🛡️ Hardened AI Filter Enforcement", username, message_text, "Matched previously learned Mod Action. Asking Mode Bypassed.")
+                    self.send_discord_log(webhook_url, "🛡️ Hardened AI Filter Enforcement", username, message_text, "Matched previously learned Mod Action.")
                     return 
 
             # Spam Detection
@@ -431,7 +422,7 @@ class YouTubeChatMonitor:
                 now = datetime.now(timezone.utc)
                 user_data["yt_user_id"] = yt_user_id
                 
-                if (now - user_data["last_checked"]).total_seconds() >= 300: 
+                if (now - user_data.get("last_checked", datetime.min.replace(tzinfo=timezone.utc))).total_seconds() >= 300: 
                     user_data["last_checked"] = now
                     eval_result = await self.ai.evaluate_for_moderation(username, message_text)
                     if eval_result.get("flagged"):
@@ -443,7 +434,7 @@ class YouTubeChatMonitor:
                             await self.send_message(f"⚠️ [AI WARNING] @{username} flagged. Mods: type '!punish @{username}' or '!ignore @{username}'", live_chat_id)
                         else:
                             if user_data["strikes"] == 1: await self.send_message(f"⚠️ @{username}, warning for inappropriate behavior.", live_chat_id)
-                            elif user_data["strikes"] == 2:
+                            elif user_data["strikes"] >= 2:
                                 await self.send_message(f"⏱️ @{username} timed out by AI.", live_chat_id)
                                 await self.timeout_user(live_chat_id, yt_user_id, 300)
                         return
@@ -454,18 +445,19 @@ class YouTubeChatMonitor:
                 user = User(youtube_id=yt_user_id, username=username)
                 db.add(user)
                 db.flush() 
-                db.add(XP(user_id=user.id, streamer_id=streamer_id, current_xp=10, level=1, total_messages=1))
+                db.add(XP(user_id=user.id, streamer_id=effective_id, current_xp=10, level=1, total_messages=1))
                 db.add(Coin(user_id=user.id, balance=50, lifetime_earned=50))
                 db.add(DiscordLink(user_id=user.id, sync_code=f"GODDESS-{secrets.token_hex(2).upper()}"))
             else:
                 user.last_seen = datetime.now(timezone.utc)
-                xp_profile = db.query(XP).filter(XP.user_id == user.id, XP.streamer_id == streamer_id).first()
+                xp_profile = db.query(XP).filter(XP.user_id == user.id, XP.streamer_id == effective_id).first()
                 if not xp_profile:
-                    xp_profile = XP(user_id=user.id, streamer_id=streamer_id, current_xp=0, level=1, total_messages=0)
+                    xp_profile = XP(user_id=user.id, streamer_id=effective_id, current_xp=0, level=1, total_messages=0)
                     db.add(xp_profile)
                 
                 xp_profile.current_xp += 15 
-                user.coins[0].balance += 5  
+                if user.coins:
+                    user.coins[0].balance += 5  
                 new_level = self.calculate_level_up(xp_profile.current_xp, xp_profile.level)
                 if new_level > xp_profile.level: xp_profile.level = new_level
 
@@ -474,7 +466,7 @@ class YouTubeChatMonitor:
             cmd = parts[0] if parts else ""
 
             if cmd == "!stats":
-                xp_prof = db.query(XP).filter(XP.user_id == user.id, XP.streamer_id == streamer_id).first()
+                xp_prof = db.query(XP).filter(XP.user_id == user.id, XP.streamer_id == effective_id).first()
                 await self.send_message(f"📊 @{username} | Level: {xp_prof.level} | Coins: 🪙 {user.coins[0].balance}", live_chat_id)
 
             elif cmd in ["!flip", "!dice", "!spin"]:
@@ -483,7 +475,7 @@ class YouTubeChatMonitor:
                 else:
                     bet = int(parts[1])
                     if bet <= 0 or user.coins[0].balance < bet:
-                        await self.send_message(f"❌ @{username}, you don't have enough coins for that bet!", live_chat_id)
+                        await self.send_message(f"❌ @{username}, you don't have enough coins!", live_chat_id)
                     else:
                         user.coins[0].balance -= bet 
                         
@@ -515,9 +507,9 @@ class YouTubeChatMonitor:
                             win = int(bet * multiplier)
                             user.coins[0].balance += win
                             if multiplier == 0:
-                                await self.send_message(f"🎡 The wheel landed on 0x... @{username} lost everything.", live_chat_id)
+                                await self.send_message(f"🎡 Landed on 0x... @{username} lost everything.", live_chat_id)
                             else:
-                                await self.send_message(f"🎡 The wheel landed on {multiplier}x! @{username} walks away with 🪙 {win}!", live_chat_id)
+                                await self.send_message(f"🎡 Landed on {multiplier}x! @{username} wins 🪙 {win}!", live_chat_id)
 
             elif cmd == "!joinbr":
                 game = self.br_games.get(live_chat_id)
@@ -528,21 +520,29 @@ class YouTubeChatMonitor:
                         
             elif command_text == "!claim airdrop":
                 game = self.br_games.get(live_chat_id)
-                if game and game['state'] == 'running' and game['airdrop']:
+                if game and game['state'] == 'running' and game.get('airdrop'):
                     p = game['players'].get(yt_user_id)
                     if p and p['lives'] > 0:
                         p['lives'] += 1
                         game['airdrop'] = False
                         await self.send_message(f"🪂 @{username} claimed the Airdrop! You now have {p['lives']} lives!", live_chat_id)
 
-            elif command_text in self.custom_commands:
-                await self.send_message(self.custom_commands[command_text], live_chat_id)
+            else:
+                # Normal Custom Commands lookup
+                cmd_match = db.query(CustomCommand).filter(CustomCommand.streamer_id == effective_id, CustomCommand.command_trigger == command_text).first()
+                if cmd_match:
+                    await self.send_message(cmd_match.response_text, live_chat_id)
 
-            db.add(ChatLog(stream_id=streamer_id, user_id=user.id, message=message_text))
+            # SAVE CHAT LOG (Tracked back to the literal actual stream it came from)
+            db.add(ChatLog(streamer_id=actual_id, user_id=user.id, message=message_text))
             db.commit()
+            
+            # 🛠️ CHAT SUCCESSFULLY SAVED PRINT OUT
+            print(f"✅ [CHAT CAUGHT] {username}: {message_text}")
 
         except Exception as e:
             if not is_guest: db.rollback()
+            print(f"🚨 [PROCESS MSG ERROR] {e}")
         finally:
             if not is_guest: db.close()
 
@@ -567,88 +567,106 @@ class YouTubeChatMonitor:
                 disconnects = list(DISCONNECT_QUEUE)
                 DISCONNECT_QUEUE.clear()
                 for vid in disconnects:
-                    keys_to_del = [k for k, v in self.active_streams.items() if v.get("video_id") == vid]
-                    for k in keys_to_del:
-                        del self.active_streams[k]
-                        if k in self.stream_modes: del self.stream_modes[k]
+                    if vid in self.active_streams: del self.active_streams[vid]
 
                 videos_to_check = dict(DETECTED_VIDEOS)
                 DETECTED_VIDEOS.clear() 
                 
-                for video_id, forced_streamer_id in videos_to_check.items():
+                for video_id, target_streamer_id in videos_to_check.items():
                     channel_id, chat_id = self.get_chat_from_video(video_id)
                     
                     if channel_id and chat_id:
-                        if forced_streamer_id: streamer = db.query(Streamer).filter(Streamer.id == forced_streamer_id).first()
-                        else: streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == channel_id, Streamer.is_active == True).first()
+                        if target_streamer_id: 
+                            streamer = db.query(Streamer).filter(Streamer.id == target_streamer_id).first()
+                        else: 
+                            streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == channel_id, Streamer.is_active == True).first()
                         
-                        stream_key = streamer.id if streamer else f"guest_{channel_id}"
                         is_guest = streamer is None
                         
-                        if stream_key not in self.active_streams:
-                            self.active_streams[stream_key] = {"chat_id": chat_id, "video_id": video_id, "start_time": datetime.now(timezone.utc)}
-                            self.stream_modes[stream_key] = "guest" if is_guest else "premium"
+                        if video_id not in self.active_streams:
+                            self.active_streams[video_id] = {
+                                "chat_id": chat_id, 
+                                "actual_id": streamer.id if streamer else None,
+                                "effective_id": streamer.effective_id if streamer else None,
+                                "is_guest": is_guest,
+                                "next_page_token": None
+                            }
                             
+                            print(f"[LIVE] {'🟡 GUEST' if is_guest else '🟢 PREMIUM'} Connected to video: {video_id} | Chat ID: {chat_id}")
                             if is_guest: await self.send_message("👋 Hello! Goddess AI (Guest Mode) has successfully connected to the chat!", chat_id)
                             else: await self.send_message("🤖 mod hajir hai janab uk malik ki kami nhi hone dega 😁😸 (Mods type !checkup)", chat_id)
                 
 
-                async def fetch_and_process(streamer_key):
+                async def fetch_and_process(vid_id):
                     db_session = SessionLocal()
                     try:
-                        chat_info = self.active_streams[streamer_key]
-                        chat_id = chat_info["chat_id"] if isinstance(chat_info, dict) else chat_info
-                        token = self.next_page_tokens.get(chat_id)
-                        is_guest = self.stream_modes.get(streamer_key) == "guest"
+                        stream_data = self.active_streams[vid_id]
+                        chat_id = stream_data["chat_id"]
+                        token = stream_data["next_page_token"]
+                        is_guest = stream_data["is_guest"]
+                        actual_id = stream_data["actual_id"]
+                        effective_id = stream_data["effective_id"]
 
-                        webhook_url = None
-                        if not is_guest:
-                            st_record = db_session.query(Streamer).filter(Streamer.id == streamer_key).first()
-                            if st_record: webhook_url = st_record.discord_webhook_url
+                        sys_state = db_session.query(SystemState).first()
+                        if sys_state and sys_state.youtube_api_calls >= sys_state.youtube_api_cap: return
 
-                        try:
-                            sys_state = db_session.query(SystemState).first()
-                            if sys_state and sys_state.youtube_api_calls >= sys_state.youtube_api_cap: return
+                        def execute_request():
+                            # Cache_discovery=False prevents log spam inside threads too
+                            local_youtube = build('youtube', 'v3', credentials=self.credentials, cache_discovery=False)
+                            return local_youtube.liveChatMessages().list(liveChatId=chat_id, part="snippet,authorDetails", pageToken=token).execute()
 
-                            def execute_request():
-                                local_youtube = build('youtube', 'v3', credentials=self.credentials)
-                                return local_youtube.liveChatMessages().list(liveChatId=chat_id, part="snippet,authorDetails", pageToken=token).execute()
+                        response = await asyncio.to_thread(execute_request)
 
-                            response = await asyncio.to_thread(execute_request)
+                        if sys_state:
+                            sys_state.youtube_api_calls += 1
+                            db_session.commit()
 
-                            if sys_state:
-                                sys_state.youtube_api_calls += 1
-                                db_session.commit()
+                        self.active_streams[vid_id]["next_page_token"] = response.get("nextPageToken")
+                        items = response.get("items", [])
+                        
+                        # --- 🛠️ RAW DEBUGGER: PROVES DATA ARRIVED ---
+                        if len(items) > 0:
+                            print(f"📥 [RAW YOUTUBE DATA] Grabbed {len(items)} events for stream {vid_id}")
 
-                            self.next_page_tokens[chat_id] = response.get("nextPageToken")
+                        for item in items:
+                            snippet = item["snippet"]
+                            event_type = snippet["type"]
                             
-                            for item in response.get("items", []):
-                                snippet = item["snippet"]
-                                event_type = snippet["type"]
+                            print(f"🔍 [EVENT DETECTED] Type: {event_type}")
 
-                                if event_type == "textMessageEvent":
-                                    await self.process_message(item["authorDetails"]["channelId"], item["authorDetails"]["displayName"], snippet["textMessageDetails"]["messageText"], item["id"], streamer_key, chat_id, item["authorDetails"].get("isChatModerator", False) or item["authorDetails"].get("isChatOwner", False), is_guest)
+                            if event_type == "textMessageEvent":
+                                await self.process_message(
+                                    item["authorDetails"]["channelId"], 
+                                    item["authorDetails"]["displayName"], 
+                                    snippet["textMessageDetails"]["messageText"], 
+                                    item["id"], actual_id, effective_id, chat_id, 
+                                    item["authorDetails"].get("isChatModerator", False) or item["authorDetails"].get("isChatOwner", False), 
+                                    is_guest
+                                )
+                            elif event_type in ["superChatEvent", "superStickerEvent", "newSponsorEvent", "membershipGiftingEvent", "memberMilestoneChatEvent"]:
+                                await self.handle_support_event(event_type, snippet, item["authorDetails"]["displayName"], item["authorDetails"]["channelId"], actual_id, effective_id, chat_id, is_guest)
+                            elif event_type == "userBannedEvent" and not is_guest:
+                                webhook_url = None
+                                st_record = db_session.query(Streamer).filter(Streamer.id == actual_id).first()
+                                if st_record: webhook_url = st_record.discord_webhook_url
                                 
-                                # --- AI OBSERVER LOGIC FOR NATIVE YOUTUBE BANS ---
-                                elif event_type == "userBannedEvent" and not is_guest:
-                                    banned_details = snippet.get("userBannedDetails", {})
-                                    banned_user = banned_details.get("bannedUserDetails", {})
-                                    ban_type = banned_details.get("banType", "unknown")
-                                    target_id = banned_user.get("channelId")
-                                    target_name = banned_user.get("displayName")
-                                    await self.observe_and_learn(f"Native YouTube {ban_type.capitalize()} Ban", target_name, target_id, streamer_key, webhook_url)
+                                banned_details = snippet.get("userBannedDetails", {})
+                                banned_user = banned_details.get("bannedUserDetails", {})
+                                ban_type = banned_details.get("banType", "unknown")
+                                await self.observe_and_learn(f"Native YouTube {ban_type.capitalize()} Ban", banned_user.get("displayName"), banned_user.get("channelId"), effective_id, webhook_url)
 
-                        except Exception as e:
-                            print(f"[YOUTUBE CHAT LOOP ERROR] {e}")
-                            del self.active_streams[streamer_key]
-                            if streamer_key in self.stream_modes: del self.stream_modes[streamer_key]
+                    except Exception as e:
+                        print(f"🚨 [YOUTUBE CHAT LOOP ERROR for {vid_id}] {e}")
+                        del self.active_streams[vid_id]
                     finally:
                         db_session.close()
 
-                tasks = [fetch_and_process(streamer_key) for streamer_key in list(self.active_streams.keys())]
+                tasks = [fetch_and_process(vid_id) for vid_id in list(self.active_streams.keys())]
                 if tasks:
                     await asyncio.gather(*tasks)
-            except Exception: pass
-            finally: db.close()
+            except Exception as e: 
+                print(f"🚨 [MAIN LOOP EXCEPTION] {e}")
+            finally: 
+                db.close()
             
             await asyncio.sleep(5)
