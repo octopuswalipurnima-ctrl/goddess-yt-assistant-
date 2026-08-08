@@ -74,6 +74,44 @@
             </form>
         </div>
 
+        <!-- ACTIVE STREAM CONNECTIONS & DISCONNECT CONTROL -->
+        <div class="panel" style="border-top: 4px solid #ef4444;">
+            <h3 style="color: #ef4444;">🔴 Active Bot Sessions</h3>
+            <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">
+                Disconnecting the bot stops all chat polling immediately and drops YouTube API usage to <strong>0%</strong>.
+            </p>
+
+            {% if active_videos %}
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    {% for vid in active_videos %}
+                    <div style="background: #18181b; border: 1px solid #27272a; padding: 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="color: #4ade80; font-weight: bold; font-size: 0.9em;">🟢 BOT IS LIVE & MONITORING</span>
+                            <div style="color: #e5e7eb; font-family: monospace; font-size: 1.1em; margin-top: 4px;">Video ID: {{ vid }}</div>
+                        </div>
+                        <form action="/api/disconnect-bot" method="POST" style="margin: 0;">
+                            <input type="hidden" name="video_id" value="{{ vid }}">
+                            <button type="submit" style="background: #ef4444; color: white; padding: 10px 18px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
+                                🛑 Disconnect & Stop API
+                            </button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div style="background: #18181b; border: 1px dashed #333; padding: 20px; border-radius: 8px; text-align: center; color: #71717a;">
+                    💤 <strong>Bot is in Standby Mode (0 API Usage).</strong><br>
+                    It will automatically wake up when WebSub detects a live stream, or when you manually deploy a link above.
+                </div>
+            {% endif %}
+
+            {% if request.query_params.get('success') == 'disconnected' %}
+                <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; padding: 12px; border-radius: 8px; color: #fca5a5; margin-top: 15px; font-weight: bold;">
+                    🛑 Bot disconnected successfully. API usage returned to 0%.
+                </div>
+            {% endif %}
+        </div>
+
         <!-- NEW: ACCOUNT LINKING & SYNC PANEL -->
         <div class="panel" style="border-top: 4px solid #3b82f6;">
             <h3 style="color: #3b82f6;">🔗 Multi-Channel Account Sync</h3>
@@ -366,43 +404,7 @@
                     {% endif %}
                 </div>
             </div>
-            <!-- ACTIVE STREAM CONNECTIONS & DISCONNECT CONTROL -->
-<div class="panel" style="border-top: 4px solid #ef4444;">
-    <h3 style="color: #ef4444;">🔴 Active Bot Sessions</h3>
-    <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">
-        Disconnecting the bot stops all chat polling immediately and drops YouTube API usage to <strong>0%</strong>.
-    </p>
-
-    {% if active_videos %}
-        <div style="display: flex; flex-direction: column; gap: 10px;">
-            {% for vid in active_videos %}
-            <div style="background: #18181b; border: 1px solid #27272a; padding: 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <span style="color: #4ade80; font-weight: bold; font-size: 0.9em;">🟢 BOT IS LIVE & MONITORING</span>
-                    <div style="color: #e5e7eb; font-family: monospace; font-size: 1.1em; margin-top: 4px;">Video ID: {{ vid }}</div>
-                </div>
-                <form action="/api/disconnect-bot" method="POST" style="margin: 0;">
-                    <input type="hidden" name="video_id" value="{{ vid }}">
-                    <button type="submit" style="background: #ef4444; color: white; padding: 10px 18px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
-                        🛑 Disconnect & Stop API
-                    </button>
-                </form>
-            </div>
-            {% endfor %}
-        </div>
-    {% else %}
-        <div style="background: #18181b; border: 1px dashed #333; padding: 20px; border-radius: 8px; text-align: center; color: #71717a;">
-            💤 <strong>Bot is in Standby Mode (0 API Usage).</strong><br>
-            It will automatically wake up when WebSub detects a live stream, or when you manually deploy a link above.
-        </div>
-    {% endif %}
-
-    {% if request.query_params.get('success') == 'disconnected' %}
-        <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; padding: 12px; border-radius: 8px; color: #fca5a5; margin-top: 15px; font-weight: bold;">
-            🛑 Bot disconnected successfully. API usage returned to 0%.
-        </div>
-    {% endif %}
-</div>
+            
             <!-- PRO Upgrade Banner -->
             <div style="background: linear-gradient(45deg, #1e1e24, #2d203a); border: 1px solid #a855f7; padding: 20px; border-radius: 8px;">
                 <h4 style="margin: 0 0 10px 0; color: #eab308;">⭐ Upgrade to PRO (₹50/month)</h4>
@@ -444,7 +446,7 @@
 
             <!-- RE-ADDED: PRO Custom Upload & Visual Builder -->
             <div style="border-top: 1px dashed #444; padding-top: 20px;">
-                <h4 style="margin-top: 0; color: #fbbf24;">💎 Pro: Upload Custom Widget</h4>
+                <h4 style="margin: 0 0 10px 0; color: #fbbf24;">💎 Pro: Upload Custom Widget</h4>
                 <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Write your own CSS or inject your own graphics. <strong>Requires a one-time setup fee of ₹20.</strong></p>
                 
                 {% if request.query_params.get('error') == 'payment_required_20_inr' %}
@@ -475,7 +477,7 @@
 
             <!-- RE-ADDED: Advanced Visual Builder -->
             <div style="border-top: 1px dashed #444; padding-top: 20px; margin-top: 20px;">
-                <h4 style="margin-top: 0; color: #fbbf24;">🛠️ Pro Layout Builder</h4>
+                <h4 style="margin: 0 0 10px 0; color: #fbbf24;">🛠️ Pro Layout Builder</h4>
                 <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Visually compose your alerts and goal bars. Drag, drop, and style without writing code.</p>
                 
                 <div style="display: flex; gap: 20px;">
