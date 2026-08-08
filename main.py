@@ -43,6 +43,20 @@ from app.api.creator_economy import router as economy_router
 from app.utils.config import Config
 
 # ---------------------------------------------------------
+# MIDDLEWARE & BROWSER SESSIONS
+# ---------------------------------------------------------
+
+app.add_middleware(
+    SessionMiddleware, 
+    secret_key="super-secret-goddess-key-change-later",
+    max_age=3600 * 24 * 7,
+    https_only=False,  # <--- SET THIS TO FALSE TO STOP RAILWAY LOGOUT LOOPS
+    same_site="lax" 
+)
+
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=("*",))
+
+# ---------------------------------------------------------
 # COMPREHENSIVE LOGGING CONFIGURATION
 # ---------------------------------------------------------
 logging.basicConfig(
