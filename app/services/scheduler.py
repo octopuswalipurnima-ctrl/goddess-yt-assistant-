@@ -8,7 +8,6 @@ from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.database.connection import SessionLocal
 
-# Added CustomCommand, Streamer, VIPGuest, and WaitingListEntry to support the new features
 from app.database.models import User, Coin, XP, CustomCommand, Streamer, VIPGuest, WaitingListEntry
 from app.ai.generator import AIBrain
 from app.services.websocket import overlay_manager
@@ -19,22 +18,27 @@ scheduler = AsyncIOScheduler()
 ai_brain = AIBrain()
 
 async def award_passive_rewards():
-    """Background task: Awards 10 XP and 20 Coins every 5 minutes to active stream viewers."""
+    """Awards passive coins and XP to active viewers across all active streams every 5 minutes."""
     db = SessionLocal()
     try:
-        # Fetch users seen within the last 15 minutes
-        threshold = datetime.now(timezone.utc)
-        # For simplicity in this SQLite architecture, we select active records
-        active_users = db.query(User).all() 
-        
-        for user in active_users:
-            if user.xp and user.coins:
-                user.xp.current_xp += 10
-                user.coins.balance += 20
-                user.coins.lifetime_earned += 20
-        
+        # Loop through every active streamer
+        streamers = db.query(Streamer).filter(Streamer.is_active == True).all()
+        for streamer in streamers:
+            eff_id = streamer.effective_id
+            
+            # Fetch all XP profiles attached to this specific streamer
+            xp_records = db.query(XP).filter(XP.streamer_id == eff_id).all()
+            for xp_rec in xp_records:
+                xp_rec.current_xp += 10
+                
+                # Fetch the associated user to award coins to their master wallet
+                user = db.query(User).filter(User.id == xp_rec.user_id).first()
+                if user and user.coins:
+                    user.coins[0].balance += 20
+                    user.coins[0].lifetime_earned += 20
+                    
         db.commit()
-        logger.info(f"[SCHEDULER] Distributed passive retention rewards to {len(active_users)} viewers.")
+        logger.info("[SCHEDULER] Distributed passive rewards to active viewers successfully.")
     except Exception as e:
         db.rollback()
         logger.error(f"[SCHEDULER ERROR] Error distributing passive rewards: {e}")
@@ -201,18 +205,19 @@ async def websub_renewal_loop():
 
 def start_scheduler():
     """Starts all stream tasks."""
-    # Run passive distribution every 5 minutes
-    scheduler.add_job(award_passive_rewards, 'interval', minutes=5)
-    
-    # Sweep AFK users from the 1v1 queue every 2 minutes
-    scheduler.add_job(prune_afk_waiting_list, 'interval', minutes=2)
-    
-    # Run giveaway reminders on a random interval between 15 and 30 minutes
-    random_interval = random.randint(15, 30)
-    scheduler.add_job(trigger_ai_giveaway_reminder, 'interval', minutes=random_interval)
-    
-    # Reset VIP greetings automatically every night at 3:00 AM
-    scheduler.add_job(reset_vip_greetings, 'cron', hour=3, minute=0)
-    
-    scheduler.start()
-    logger.info("[SCHEDULER] Loyalty loops, Queue Sweepers, VIP resets, and AI chronometers initialized successfully.")
+    if not scheduler.running:
+        # Run passive distribution every 5 minutes
+        scheduler.add_job(award_passive_rewards, 'interval', minutes=5, id='award_passive_rewards', replace_existing=True)
+        
+        # Sweep AFK users from the 1v1 queue every 2 minutes
+        scheduler.add_job(prune_afk_waiting_list, 'interval', minutes=2, id='prune_afk', replace_existing=True)
+        
+        # Run giveaway reminders on a random interval between 15 and 30 minutes
+        random_interval = random.randint(15, 30)
+        scheduler.add_job(trigger_ai_giveaway_reminder, 'interval', minutes=random_interval, id='giveaway_reminders', replace_existing=True)
+        
+        # Reset VIP greetings automatically every night at 3:00 AM
+        scheduler.add_job(reset_vip_greetings, 'cron', hour=3, minute=0, id='vip_reset', replace_existing=True)
+        
+        scheduler.start()
+        logger.info("[SCHEDULER] Loyalty loops, Queue Sweepers, VIP resets, and AI chronometers initialized successfully.")
