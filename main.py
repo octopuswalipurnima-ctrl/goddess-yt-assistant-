@@ -362,9 +362,13 @@ async def disconnect_bot_manually(request: Request, video_id: str = Form(...)):
     try:
         if video_id in DETECTED_VIDEOS:
             del DETECTED_VIDEOS[video_id]
+            
         DISCONNECT_QUEUE.add(video_id)
+        logger.info(f"[BOT DISCONNECT] Stopped monitoring stream: {video_id}. API usage returning to 0%.")
+        
         return RedirectResponse(url="/?success=disconnected", status_code=303)
     except Exception as e:
+        logger.error(f"[DISCONNECT ERROR] {e}")
         return RedirectResponse(url="/", status_code=303)
 
 
