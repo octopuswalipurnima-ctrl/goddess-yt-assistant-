@@ -358,13 +358,31 @@ async def deploy_bot_manually(request: Request, stream_url: str = Form(...), db:
 
 
 @app.post("/api/disconnect-bot")
-async def disconnect_bot_manually(request: Request, video_id: str = Form(...)):
+async def disconnect_bot_manually(request: Request, video_id: str = Form(...), db: Session = Depends(get_db)):
     try:
+        # 1. Stop the bot from polling
         if video_id in DETECTED_VIDEOS:
             del DETECTED_VIDEOS[video_id]
             
         DISCONNECT_QUEUE.add(video_id)
-        logger.info(f"[BOT DISCONNECT] Stopped monitoring stream: {video_id}. API usage returning to 0%.")
+        
+        # 2. Wipe the Live Chat Reader history for the dashboard
+        streamer_id = request.session.get("streamer_id")
+        if streamer_id:
+            streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
+            if streamer:
+                valid_ids = [streamer.id]
+                if streamer.linked_primary_id: 
+                    valid_ids.append(streamer.linked_primary_id)
+                linked = db.query(Streamer).filter(Streamer.linked_primary_id == streamer.id).all()
+                for c in linked: 
+                    valid_ids.append(c.id)
+                
+                # Delete the old messages from the database
+                db.query(ChatLog).filter(ChatLog.streamer_id.in_(valid_ids)).delete(synchronize_session=False)
+                db.commit()
+                
+        logger.info(f"[BOT DISCONNECT] Stopped monitoring stream: {video_id}. Chat UI Cleared.")
         
         return RedirectResponse(url="/?success=disconnected", status_code=303)
     except Exception as e:
