@@ -27,6 +27,17 @@ class Streamer(Base):
     discord_log_channel_id = Column(String, nullable=True)
     discord_announcement_channel_id = Column(String, nullable=True)
 
+    # --- ACCOUNT LINKING & SYNC ---
+    linked_primary_id = Column(Integer, ForeignKey("streamers.id"), nullable=True)
+    sync_settings = Column(Boolean, default=True) # True = Share commands/coins. False = Independent.
+    
+    @property
+    def effective_id(self):
+        """Returns the primary ID if linked AND synced, otherwise returns its own ID."""
+        if self.linked_primary_id and self.sync_settings:
+            return self.linked_primary_id
+        return self.id
+
     # Linking the streamer to their channel's data
     xps = relationship("XP", back_populates="streamer")
     coins = relationship("Coin", back_populates="streamer")
@@ -458,6 +469,7 @@ class WaitingListEntry(Base):
     
     user = relationship("User", back_populates="waiting_list_entries")
     streamer = relationship("Streamer", back_populates="waiting_list_entries")
+
 class SystemState(Base):
     __tablename__ = "system_state"
 

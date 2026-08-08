@@ -1,13 +1,15 @@
 import urllib.request
 import urllib.parse
 
-# Your new channel's UC ID
-new_channel_uc_id = "UCCMwadkzXrznmMpZd5ek6PA"
+# 1. Put your exact channel ID here inside the quotes:
+new_channel_uc_id = "UCCMwadkzXrznmmpzd5ek6pa"
 
 print(f"Sending WebSub subscription request for Channel ({new_channel_uc_id})...")
 
 hub_url = "https://pubsubhubbub.appspot.com/subscribe"
 callback_url = "https://goddess-yt-assistant-production-b575.up.railway.app/api/youtube-webhook"
+
+# 2. Python will automatically pull the variable from above into this link
 topic_url = f"https://www.youtube.com/xml/feeds/videos.xml?channel_id={new_channel_uc_id}"
 
 data = {
