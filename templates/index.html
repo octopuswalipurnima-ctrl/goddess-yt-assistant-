@@ -76,7 +76,7 @@
         .app-container { display: flex; height: 100vh; overflow: hidden; }
         
         .sidebar { width: 260px; background: rgba(9, 9, 11, 0.8); backdrop-filter: blur(20px); border-right: 1px solid var(--border-glass); display: flex; flex-direction: column; padding: 24px 0; z-index: 10; }
-        .sidebar-brand { padding: 0 24px; margin-bottom: 40px; font-size: 1.5em; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+        .sidebar-brand { padding: 0 24px; margin-bottom: 24px; font-size: 1.5em; font-weight: 700; display: flex; align-items: center; gap: 10px; }
         .sidebar-brand i { color: var(--accent-primary); }
         
         .nav-menu { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 0 12px; }
@@ -148,25 +148,36 @@
         <!-- SIDEBAR NAVIGATION -->
         <aside class="sidebar">
             <div class="sidebar-brand"><i class="fa-solid fa-crown"></i> Goddess AI</div>
+
+            <!-- WORKSPACE SWITCHER -->
+            {% if workspaces %}
+            <div style="padding: 0 16px; margin-bottom: 24px;">
+                <p style="font-size: 0.75em; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px;">Current Workspace</p>
+                <select onchange="window.location.href='/switch-workspace/' + this.value" style="width: 100%; background: rgba(0,0,0,0.5); border: 1px solid var(--border-glass); padding: 10px; font-weight: bold; color: var(--accent-primary); cursor: pointer; border-radius: 8px; appearance: none; -webkit-appearance: none;">
+                    {% for ws in workspaces %}
+                        <option value="{{ ws.id }}" {% if ws.id == settings.active_streamer_id %}selected{% endif %}>
+                            {{ ws.name }} [{{ ws.role|upper }}]
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
             <ul class="nav-menu">
                 <li class="nav-item active" onclick="switchTab('tab-overview')"><i class="fa-solid fa-chart-pie" style="width: 20px;"></i> Overview</li>
                 
-                <!-- Role Based Rendering: Only Owners and Managers see AI Settings -->
                 {% if settings.user_role in ['owner', 'manager'] %}
                 <li class="nav-item" onclick="switchTab('tab-moderation')"><i class="fa-solid fa-brain" style="width: 20px;"></i> AI Moderation</li>
                 {% endif %}
 
-                <!-- Editors, Managers, Owners see Commands/VIPs -->
                 {% if settings.user_role in ['owner', 'manager', 'editor'] %}
                 <li class="nav-item" onclick="switchTab('tab-economy')"><i class="fa-solid fa-store" style="width: 20px;"></i> Creator Economy</li>
                 {% endif %}
 
-                <!-- Mods, Managers, Owners see OBS/Alerts -->
                 {% if settings.user_role in ['owner', 'manager', 'moderator'] %}
                 <li class="nav-item" onclick="switchTab('tab-widgets')"><i class="fa-solid fa-layer-group" style="width: 20px;"></i> Overlays & Widgets</li>
                 {% endif %}
 
-                <!-- Only Owners and Managers see Team settings -->
                 {% if settings.user_role in ['owner', 'manager'] %}
                 <li class="nav-item" onclick="switchTab('tab-team')"><i class="fa-solid fa-users-gear" style="width: 20px;"></i> Team & Security</li>
                 {% endif %}
@@ -209,7 +220,7 @@
                 {% elif request.query_params.get('invite_generated') %}
                     <div class="alert-box alert-success" style="flex-direction: column; align-items: flex-start;">
                         <div style="margin-bottom: 8px;"><i class="fa-solid fa-link"></i> Magic Invite Link Generated (Valid for 24h):</div>
-                        <input type="text" readonly value="{{ request.query_params.get('invite_generated') }}" onclick="this.select()" style="font-family: monospace; color: var(--accent-primary);">
+                        <input type="text" readonly value="{{ request.query_params.get('invite_generated') }}" onclick="this.select()" style="font-family: monospace; color: var(--accent-primary); background: rgba(0,0,0,0.4); border: 1px solid var(--accent-primary); width: 100%; padding: 12px; border-radius: 8px;">
                     </div>
                 {% endif %}
 

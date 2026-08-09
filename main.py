@@ -34,7 +34,7 @@ from app.database.connection import init_db, get_db
 from app.database.models import (
     User, XP, Streamer, AlertTemplate, GoalWidget, ClipRecord, 
     CustomCommand, VIPGuest, Coin, WaitingListEntry, ChatLog,
-    TeamMember, TeamInvite, AuditLog  # NEW: Team & Audit Models
+    TeamMember, TeamInvite, AuditLog
 )
 from app.dashboard.auth import router as auth_router
 from app.dashboard.routes import router as dashboard_router
@@ -87,10 +87,6 @@ templates = Jinja2Templates(directory="templates")
 # SECURITY: ROLE-BASED ACCESS CONTROL (RBAC)
 # ---------------------------------------------------------
 def require_role(allowed_roles: list):
-    """
-    FastAPI Dependency to protect routes based on team roles.
-    allowed_roles should be a list like: ["owner", "manager", "moderator", "editor"]
-    """
     async def role_checker(request: Request, db: Session = Depends(get_db)):
         active_dashboard_id = request.session.get("streamer_id")
         if not active_dashboard_id:
@@ -101,7 +97,6 @@ def require_role(allowed_roles: list):
 
         streamer = db.query(Streamer).filter(Streamer.id == active_dashboard_id).first()
         
-        # Session Patch: If user_id is missing from old auth logic, look it up and patch session
         if not logged_in_user_id and streamer:
             user = db.query(User).filter(User.youtube_id == streamer.youtube_channel_id).first()
             if user:
@@ -121,7 +116,6 @@ def require_role(allowed_roles: list):
                     current_role = membership.role
 
         if not current_role or current_role not in allowed_roles:
-            # Audit the unauthorized attempt
             if logged_in_user_id:
                 db.add(AuditLog(
                     streamer_id=active_dashboard_id,
@@ -130,7 +124,6 @@ def require_role(allowed_roles: list):
                     details=f"Attempted to access restricted route requiring {allowed_roles}"
                 ))
                 db.commit()
-            # Redirect gracefully with an error
             raise HTTPException(status_code=303, headers={"Location": "/?error=unauthorized_role"})
             
         return {"user_id": logged_in_user_id, "role": current_role}
@@ -157,45 +150,95 @@ def subscribe_websub(channel_uc_id: str):
 
 
 # ---------------------------------------------------------
-# FRONTEND DASHBOARD ROUTES
+# WORKSPACE SWITCHER ROUTE (NEW)
+# ---------------------------------------------------------
+@app.get("/switch-workspace/{target_id}")
+async def switch_workspace(target_id: int, request: Request, db: Session = Depends(get_db)):
+    logged_in_user_id = request.session.get("user_id")
+    if not logged_in_user_id:
+        return RedirectResponse(url="/login", status_code=303)
+        
+    user = db.query(User).filter(User.id == logged_in_user_id).first()
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+        
+    streamer = db.query(Streamer).filter(Streamer.id == target_id).first()
+    if not streamer:
+        return RedirectResponse(url="/?error=not_found", status_code=303)
+        
+    if streamer.youtube_channel_id == user.youtube_id:
+        request.session["streamer_id"] = target_id
+    else:
+        member = db.query(TeamMember).filter(TeamMember.streamer_id == target_id, TeamMember.user_id == user.id).first()
+        if member:
+            request.session["streamer_id"] = target_id
+            
+    return RedirectResponse(url="/", status_code=303)
+
+
+# ---------------------------------------------------------
+# FRONTEND DASHBOARD ROUTES (UPDATED FOR MULTI-TENANT)
 # ---------------------------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     try:
-        streamer_id = request.session.get("streamer_id")
+        logged_in_user_id = request.session.get("user_id")
         
-        if not streamer_id:
+        if not logged_in_user_id:
             return templates.TemplateResponse(
                 request=request, name="index.html", 
-                context={"request": request, "streamer_name": None, "viewers": [], "settings": {}, "clips": [], "commands": [], "vips": [], "active_videos": []}
+                context={"request": request, "streamer_name": None, "viewers": [], "settings": {}, "clips": [], "commands": [], "vips": [], "active_videos": [], "workspaces": []}
             )
             
-        streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
-        if not streamer:
+        user = db.query(User).filter(User.id == logged_in_user_id).first()
+        if not user:
             request.session.clear()
             return RedirectResponse(url="/", status_code=303)
-        
+
+        # 1. AUTO-CREATE THEIR OWN CHANNEL PROFILE (Every user is an owner)
+        my_streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == user.youtube_id).first()
+        if not my_streamer:
+            my_streamer = Streamer(youtube_channel_id=user.youtube_id, channel_name=user.username)
+            db.add(my_streamer)
+            db.commit()
+            db.refresh(my_streamer)
+
+        # 2. DETERMINE ACTIVE WORKSPACE
+        active_streamer_id = request.session.get("streamer_id")
+        if not active_streamer_id:
+            active_streamer_id = my_streamer.id
+            request.session["streamer_id"] = active_streamer_id
+            
+        streamer = db.query(Streamer).filter(Streamer.id == active_streamer_id).first()
+        if not streamer:
+            active_streamer_id = my_streamer.id
+            request.session["streamer_id"] = active_streamer_id
+            streamer = my_streamer
+            
         if not streamer.server_sync_code:
             streamer.server_sync_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
             db.commit()
-            
+
+        # 3. BUILD WORKSPACE LIST FOR DROPDOWN
+        workspaces = [{"id": my_streamer.id, "name": f"{my_streamer.channel_name} (Personal)", "role": "owner"}]
+        memberships = db.query(TeamMember).filter(TeamMember.user_id == user.id).all()
+        for m in memberships:
+            if m.streamer_id != my_streamer.id: # Prevent duplicates
+                workspaces.append({"id": m.streamer_id, "name": m.streamer.channel_name, "role": m.role})
+
+        # 4. LOAD DASHBOARD DATA
         effective_id = streamer.effective_id
-            
         viewers = db.query(User).join(XP).filter(XP.streamer_id == effective_id).all()
         recent_clips = db.query(ClipRecord).filter(ClipRecord.streamer_id == effective_id).order_by(ClipRecord.id.desc()).limit(6).all()
         commands = db.query(CustomCommand).filter(CustomCommand.streamer_id == effective_id).all()
         vips = db.query(VIPGuest).filter(VIPGuest.streamer_id == effective_id).all()
         
-        # Calculate current role for the UI
-        logged_in_user_id = request.session.get("user_id")
         ui_role = "viewer"
-        if logged_in_user_id:
-            user = db.query(User).filter(User.id == logged_in_user_id).first()
-            if user and streamer.youtube_channel_id == user.youtube_id:
-                ui_role = "owner"
-            else:
-                membership = db.query(TeamMember).filter(TeamMember.streamer_id == streamer.id, TeamMember.user_id == logged_in_user_id).first()
-                if membership: ui_role = membership.role
+        if streamer.youtube_channel_id == user.youtube_id:
+            ui_role = "owner"
+        else:
+            membership = db.query(TeamMember).filter(TeamMember.streamer_id == streamer.id, TeamMember.user_id == user.id).first()
+            if membership: ui_role = membership.role
         
         settings = {
             "ai_cohost_enabled": streamer.ai_cohost_enabled,
@@ -206,15 +249,16 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             "ai_observer_mode": AI_OBSERVER_MODE.get(effective_id, True),
             "linked_primary_id": streamer.linked_primary_id,
             "sync_settings": streamer.sync_settings,
-            "user_role": ui_role # Passing role to frontend for tab hiding
+            "user_role": ui_role,
+            "active_streamer_id": active_streamer_id
         }
         
         return templates.TemplateResponse(
             request=request, name="index.html", 
-            context={"request": request, "streamer_name": streamer.channel_name, "viewers": viewers, "settings": settings, "clips": recent_clips, "commands": commands, "vips": vips, "active_videos": list(DETECTED_VIDEOS.keys())}
+            context={"request": request, "streamer_name": streamer.channel_name, "viewers": viewers, "settings": settings, "clips": recent_clips, "commands": commands, "vips": vips, "active_videos": list(DETECTED_VIDEOS.keys()), "workspaces": workspaces}
         )
     except Exception as e:
-        return templates.TemplateResponse(request=request, name="index.html", context={"request": request, "streamer_name": None, "viewers": [], "settings": {}, "clips": [], "commands": [], "vips": [], "active_videos": []})
+        return templates.TemplateResponse(request=request, name="index.html", context={"request": request, "streamer_name": None, "viewers": [], "settings": {}, "clips": [], "commands": [], "vips": [], "active_videos": [], "workspaces": []})
 
 
 @app.post("/toggle-setting")
@@ -222,7 +266,7 @@ async def toggle_setting(
     request: Request, 
     setting: str = Form(...), 
     db: Session = Depends(get_db),
-    auth: dict = Depends(require_role(["owner", "manager"])) # PROTECTED
+    auth: dict = Depends(require_role(["owner", "manager"]))
 ):
     try:
         streamer_id = request.session.get("streamer_id")
@@ -243,14 +287,14 @@ async def toggle_setting(
 
 
 # ---------------------------------------------------------
-# TEAM & MAGIC INVITE ROUTES (NEW)
+# TEAM & MAGIC INVITE ROUTES
 # ---------------------------------------------------------
 @app.post("/api/team/generate-invite")
 async def generate_team_invite(
     request: Request, 
     role: str = Form(...), 
     db: Session = Depends(get_db),
-    auth: dict = Depends(require_role(["owner", "manager"])) # PROTECTED
+    auth: dict = Depends(require_role(["owner", "manager"]))
 ):
     streamer_id = request.session.get("streamer_id")
     invite_token = f"inv_{secrets.token_hex(12)}"
@@ -294,7 +338,6 @@ async def accept_team_invite(invite_code: str, request: Request, db: Session = D
     invite.is_used = True
     db.commit()
     
-    # Switch their active dashboard view to the streamer they just joined
     request.session["streamer_id"] = invite.streamer_id
     return RedirectResponse(url="/?success=team_joined", status_code=303)
 
@@ -428,7 +471,7 @@ async def disconnect_bot_manually(request: Request, video_id: str = Form(...), d
 
 
 # ---------------------------------------------------------
-# COMMANDS & VIP MANAGEMENT (EDITORS ALLOWED)
+# COMMANDS & VIP MANAGEMENT
 # ---------------------------------------------------------
 @app.post("/api/commands/add")
 async def add_custom_command(request: Request, command_trigger: str = Form(...), response_text: str = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "moderator", "editor"]))):
@@ -457,7 +500,7 @@ async def delete_custom_command(request: Request, command_id: int = Form(...), d
 
 
 @app.post("/api/vip/add")
-async def add_vip_guest(request: Request, target_username: str = Form(...), custom_reply: str = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager"]))):
+async def add_vip_guest(request: Request, target_username: str = Form(...), custom_reply: str = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "editor"]))):
     streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
     eff_id = streamer.effective_id if streamer else request.session.get("streamer_id")
     target = target_username.strip().lower() if target_username.strip().startswith("@") else f"@{target_username.strip().lower()}"
@@ -469,7 +512,7 @@ async def add_vip_guest(request: Request, target_username: str = Form(...), cust
 
 
 @app.post("/api/vip/delete")
-async def delete_vip_guest(request: Request, vip_id: int = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager"]))):
+async def delete_vip_guest(request: Request, vip_id: int = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "editor"]))):
     streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
     eff_id = streamer.effective_id if streamer else request.session.get("streamer_id")
     vip = db.query(VIPGuest).filter(VIPGuest.id == vip_id, VIPGuest.streamer_id == eff_id).first()
