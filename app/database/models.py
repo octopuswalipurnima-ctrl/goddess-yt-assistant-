@@ -74,6 +74,11 @@ class Streamer(Base):
     
     # --- QUEUE MANAGER ---
     waiting_list_entries = relationship("WaitingListEntry", back_populates="streamer")
+    
+    # --- NEW: TEAM, RBAC & AUDIT EXTENSIONS ---
+    team_members = relationship("TeamMember", back_populates="streamer", cascade="all, delete-orphan")
+    invites = relationship("TeamInvite", back_populates="streamer", cascade="all, delete-orphan")
+    audit_logs = relationship("AuditLog", back_populates="streamer", cascade="all, delete-orphan")
 
 
 # --- The Viewer Table (Global Identity) ---
@@ -101,6 +106,55 @@ class User(Base):
     
     # --- QUEUE MANAGER ---
     waiting_list_entries = relationship("WaitingListEntry", back_populates="user")
+    
+    # --- NEW: TEAM MEMBERSHIPS ---
+    team_memberships = relationship("TeamMember", back_populates="user", cascade="all, delete-orphan")
+
+
+# =========================================================================
+# --- NEW LAYER: TEAM, RBAC & AUDIT MODELS ---
+# =========================================================================
+
+class TeamMember(Base):
+    __tablename__ = "team_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Roles: 'manager', 'moderator', 'editor'
+    role = Column(String, nullable=False, default="moderator")  
+    added_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    streamer = relationship("Streamer", back_populates="team_members")
+    user = relationship("User", back_populates="team_memberships")
+
+
+class TeamInvite(Base):
+    __tablename__ = "team_invites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"), nullable=False)
+    invite_code = Column(String, unique=True, index=True, nullable=False)
+    role = Column(String, nullable=False, default="moderator")
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    is_used = Column(Boolean, default=False)
+
+    streamer = relationship("Streamer", back_populates="invites")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    action = Column(String, nullable=False)  # e.g., 'TOGGLE_AI_COHOST', 'CREATE_COMMAND'
+    details = Column(String, nullable=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+    streamer = relationship("Streamer", back_populates="audit_logs")
 
 
 # --- Channel-Specific Stats (Multi-Tenant) ---
