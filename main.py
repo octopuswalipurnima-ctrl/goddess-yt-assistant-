@@ -97,11 +97,16 @@ def require_role(allowed_roles: list):
 
         streamer = db.query(Streamer).filter(Streamer.id == active_dashboard_id).first()
         
+        # Legacy ID auto-patcher to prevent AuditLog crashes
         if not logged_in_user_id and streamer:
             user = db.query(User).filter(User.youtube_id == streamer.youtube_channel_id).first()
-            if user:
-                logged_in_user_id = user.id
-                request.session["user_id"] = user.id
+            if not user:
+                user = User(youtube_id=streamer.youtube_channel_id, username=streamer.channel_name)
+                db.add(user)
+                db.commit()
+                db.refresh(user)
+            logged_in_user_id = user.id
+            request.session["user_id"] = user.id
 
         if logged_in_user_id and streamer:
             user = db.query(User).filter(User.id == logged_in_user_id).first()
@@ -116,14 +121,17 @@ def require_role(allowed_roles: list):
                     current_role = membership.role
 
         if not current_role or current_role not in allowed_roles:
-            if logged_in_user_id:
-                db.add(AuditLog(
-                    streamer_id=active_dashboard_id,
-                    user_id=logged_in_user_id,
-                    action="UNAUTHORIZED_ACCESS_ATTEMPT",
-                    details=f"Attempted to access restricted route requiring {allowed_roles}"
-                ))
-                db.commit()
+            try:
+                if logged_in_user_id:
+                    db.add(AuditLog(
+                        streamer_id=active_dashboard_id,
+                        user_id=logged_in_user_id,
+                        action="UNAUTHORIZED_ACCESS_ATTEMPT",
+                        details=f"Attempted to access restricted route requiring {allowed_roles}"
+                    ))
+                    db.commit()
+            except Exception:
+                db.rollback()
             raise HTTPException(status_code=303, headers={"Location": "/?error=unauthorized_role"})
             
         return {"user_id": logged_in_user_id, "role": current_role}
@@ -154,26 +162,30 @@ def subscribe_websub(channel_uc_id: str):
 # ---------------------------------------------------------
 @app.get("/switch-workspace/{target_id}")
 async def switch_workspace(target_id: int, request: Request, db: Session = Depends(get_db)):
-    logged_in_user_id = request.session.get("user_id")
-    if not logged_in_user_id:
-        return RedirectResponse(url="/login", status_code=303)
-        
-    user = db.query(User).filter(User.id == logged_in_user_id).first()
-    if not user:
-        return RedirectResponse(url="/login", status_code=303)
-        
-    streamer = db.query(Streamer).filter(Streamer.id == target_id).first()
-    if not streamer:
-        return RedirectResponse(url="/?error=not_found", status_code=303)
-        
-    if streamer.youtube_channel_id == user.youtube_id:
-        request.session["streamer_id"] = target_id
-    else:
-        member = db.query(TeamMember).filter(TeamMember.streamer_id == target_id, TeamMember.user_id == user.id).first()
-        if member:
-            request.session["streamer_id"] = target_id
+    try:
+        logged_in_user_id = request.session.get("user_id")
+        if not logged_in_user_id:
+            return RedirectResponse(url="/login", status_code=303)
             
-    return RedirectResponse(url="/", status_code=303)
+        user = db.query(User).filter(User.id == logged_in_user_id).first()
+        if not user:
+            return RedirectResponse(url="/login", status_code=303)
+            
+        streamer = db.query(Streamer).filter(Streamer.id == target_id).first()
+        if not streamer:
+            return RedirectResponse(url="/?error=not_found", status_code=303)
+            
+        if streamer.youtube_channel_id == user.youtube_id:
+            request.session["streamer_id"] = target_id
+        else:
+            member = db.query(TeamMember).filter(TeamMember.streamer_id == target_id, TeamMember.user_id == user.id).first()
+            if member:
+                request.session["streamer_id"] = target_id
+                
+        return RedirectResponse(url="/", status_code=303)
+    except Exception as e:
+        logger.error(f"[WORKSPACE SWITCH ERROR] {e}")
+        return RedirectResponse(url="/", status_code=303)
 
 
 # ---------------------------------------------------------
@@ -258,6 +270,7 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             context={"request": request, "streamer_name": streamer.channel_name, "viewers": viewers, "settings": settings, "clips": recent_clips, "commands": commands, "vips": vips, "active_videos": list(DETECTED_VIDEOS.keys()), "workspaces": workspaces}
         )
     except Exception as e:
+        logger.error(f"[DASHBOARD ERROR] {e}")
         return templates.TemplateResponse(request=request, name="index.html", context={"request": request, "streamer_name": None, "viewers": [], "settings": {}, "clips": [], "commands": [], "vips": [], "active_videos": [], "workspaces": []})
 
 
@@ -283,6 +296,8 @@ async def toggle_setting(
         db.commit()
         return RedirectResponse(url="/", status_code=303)
     except Exception as e:
+        logger.error(f"[TOGGLE SETTING ERROR] {e}")
+        db.rollback()
         return RedirectResponse(url="/", status_code=303)
 
 
@@ -296,50 +311,64 @@ async def generate_team_invite(
     db: Session = Depends(get_db),
     auth: dict = Depends(require_role(["owner", "manager"]))
 ):
-    streamer_id = request.session.get("streamer_id")
-    invite_token = f"inv_{secrets.token_hex(12)}"
-    expires = datetime.now(timezone.utc) + timedelta(hours=24)
-    
-    db.add(TeamInvite(streamer_id=streamer_id, invite_code=invite_token, role=role, created_by_id=auth["user_id"], expires_at=expires))
-    db.add(AuditLog(streamer_id=streamer_id, user_id=auth["user_id"], action="GENERATE_INVITE", details=f"Generated {role} invite link."))
-    db.commit()
-    
-    magic_link = f"https://{request.headers.get('host')}/invite/{invite_token}"
-    return RedirectResponse(url=f"/?invite_generated={magic_link}", status_code=303)
+    try:
+        streamer_id = request.session.get("streamer_id")
+        invite_token = f"inv_{secrets.token_hex(12)}"
+        expires = datetime.now(timezone.utc) + timedelta(hours=24)
+        
+        db.add(TeamInvite(streamer_id=streamer_id, invite_code=invite_token, role=role, created_by_id=auth["user_id"], expires_at=expires))
+        db.add(AuditLog(streamer_id=streamer_id, user_id=auth["user_id"], action="GENERATE_INVITE", details=f"Generated {role} invite link."))
+        db.commit()
+        
+        # Safely construct the URL using native FastAPI attributes
+        base_url = str(request.base_url).rstrip("/")
+        magic_link = f"{base_url}/invite/{invite_token}"
+        safe_link = urllib.parse.quote(magic_link, safe="")
+        
+        return RedirectResponse(url=f"/?invite_generated={safe_link}", status_code=303)
+    except Exception as e:
+        logger.error(f"[GENERATE INVITE ERROR] {e}")
+        db.rollback()
+        return RedirectResponse(url="/?error=server_crash", status_code=303)
 
 
 @app.get("/invite/{invite_code}")
 async def accept_team_invite(invite_code: str, request: Request, db: Session = Depends(get_db)):
-    logged_in_user_id = request.session.get("user_id")
-    
-    if not logged_in_user_id and request.session.get("streamer_id"):
-        st = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
-        if st:
-            u = db.query(User).filter(User.youtube_id == st.youtube_channel_id).first()
-            if u:
-                logged_in_user_id = u.id
-                request.session["user_id"] = u.id
+    try:
+        logged_in_user_id = request.session.get("user_id")
+        
+        if not logged_in_user_id and request.session.get("streamer_id"):
+            st = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
+            if st:
+                u = db.query(User).filter(User.youtube_id == st.youtube_channel_id).first()
+                if u:
+                    logged_in_user_id = u.id
+                    request.session["user_id"] = u.id
 
-    if not logged_in_user_id:
-        request.session["pending_invite"] = invite_code
-        return RedirectResponse(url="/login", status_code=303)
+        if not logged_in_user_id:
+            request.session["pending_invite"] = invite_code
+            return RedirectResponse(url="/login", status_code=303)
+            
+        invite = db.query(TeamInvite).filter(TeamInvite.invite_code == invite_code, TeamInvite.is_used == False).first()
         
-    invite = db.query(TeamInvite).filter(TeamInvite.invite_code == invite_code, TeamInvite.is_used == False).first()
-    
-    if not invite or invite.expires_at < datetime.now(timezone.utc):
-        return RedirectResponse(url="/?error=invalid_invite", status_code=303)
+        if not invite or invite.expires_at < datetime.now(timezone.utc):
+            return RedirectResponse(url="/?error=invalid_invite", status_code=303)
+            
+        existing = db.query(TeamMember).filter(TeamMember.streamer_id == invite.streamer_id, TeamMember.user_id == logged_in_user_id).first()
         
-    existing = db.query(TeamMember).filter(TeamMember.streamer_id == invite.streamer_id, TeamMember.user_id == logged_in_user_id).first()
-    
-    if not existing:
-        db.add(TeamMember(streamer_id=invite.streamer_id, user_id=logged_in_user_id, role=invite.role))
-        db.add(AuditLog(streamer_id=invite.streamer_id, user_id=logged_in_user_id, action="JOINED_TEAM", details=f"Joined team via invite as {invite.role}."))
+        if not existing:
+            db.add(TeamMember(streamer_id=invite.streamer_id, user_id=logged_in_user_id, role=invite.role))
+            db.add(AuditLog(streamer_id=invite.streamer_id, user_id=logged_in_user_id, action="JOINED_TEAM", details=f"Joined team via invite as {invite.role}."))
+            
+        invite.is_used = True
+        db.commit()
         
-    invite.is_used = True
-    db.commit()
-    
-    request.session["streamer_id"] = invite.streamer_id
-    return RedirectResponse(url="/?success=team_joined", status_code=303)
+        request.session["streamer_id"] = invite.streamer_id
+        return RedirectResponse(url="/?success=team_joined", status_code=303)
+    except Exception as e:
+        logger.error(f"[ACCEPT INVITE ERROR] {e}")
+        db.rollback()
+        return RedirectResponse(url="/?error=server_crash", status_code=303)
 
 
 # ---------------------------------------------------------
@@ -387,17 +416,22 @@ async def link_secondary_account(request: Request, target_sync_code: str = Form(
         db.commit()
         return RedirectResponse(url="/?success=account_linked", status_code=303)
     except Exception:
+        db.rollback()
         return RedirectResponse(url="/?error=link_failed", status_code=303)
 
 
 @app.post("/api/account/unlink")
 async def unlink_account(request: Request, db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner"]))):
-    current_streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
-    if current_streamer and current_streamer.linked_primary_id:
-        current_streamer.linked_primary_id = None
-        db.add(AuditLog(streamer_id=current_streamer.id, user_id=auth["user_id"], action="ACCOUNT_UNLINKED", details="Account sync severed."))
-        db.commit()
-    return RedirectResponse(url="/?success=account_unlinked", status_code=303)
+    try:
+        current_streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
+        if current_streamer and current_streamer.linked_primary_id:
+            current_streamer.linked_primary_id = None
+            db.add(AuditLog(streamer_id=current_streamer.id, user_id=auth["user_id"], action="ACCOUNT_UNLINKED", details="Account sync severed."))
+            db.commit()
+        return RedirectResponse(url="/?success=account_unlinked", status_code=303)
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url="/?error=server_crash", status_code=303)
 
 
 # ---------------------------------------------------------
@@ -433,41 +467,50 @@ async def panic_button_protocol(request: Request, db: Session = Depends(get_db),
             return RedirectResponse(url="/?success=bot_deployed", status_code=303)
         return RedirectResponse(url="/?error=not_live", status_code=303)
     except Exception:
+        db.rollback()
         return RedirectResponse(url="/?error=api_crash", status_code=303)
 
 
 @app.post("/api/deploy-bot")
 async def deploy_bot_manually(request: Request, stream_url: str = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "moderator"]))):
-    streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
-    yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/live\/)([a-zA-Z0-9_-]{11})"
-    match = re.search(yt_regex, stream_url.strip())
-    video_id = match.group(1) if match else stream_url.strip()
-    
-    if video_id:
-        DETECTED_VIDEOS[video_id] = streamer.effective_id
-        if streamer.youtube_channel_id: subscribe_websub(streamer.youtube_channel_id)
-        db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="BOT_DEPLOYED", details=f"Manually deployed to {video_id}"))
-        db.commit()
-        return RedirectResponse(url="/?success=bot_deployed", status_code=303)
-    return RedirectResponse(url="/?error=invalid_url", status_code=303)
+    try:
+        streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
+        yt_regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/live\/)([a-zA-Z0-9_-]{11})"
+        match = re.search(yt_regex, stream_url.strip())
+        video_id = match.group(1) if match else stream_url.strip()
+        
+        if video_id:
+            DETECTED_VIDEOS[video_id] = streamer.effective_id
+            if streamer.youtube_channel_id: subscribe_websub(streamer.youtube_channel_id)
+            db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="BOT_DEPLOYED", details=f"Manually deployed to {video_id}"))
+            db.commit()
+            return RedirectResponse(url="/?success=bot_deployed", status_code=303)
+        return RedirectResponse(url="/?error=invalid_url", status_code=303)
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url="/?error=server_crash", status_code=303)
 
 
 @app.post("/api/disconnect-bot")
 async def disconnect_bot_manually(request: Request, video_id: str = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "moderator"]))):
-    if video_id in DETECTED_VIDEOS: del DETECTED_VIDEOS[video_id]
-    DISCONNECT_QUEUE.add(video_id)
-    
-    streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
-    if streamer:
-        valid_ids = [streamer.id]
-        if streamer.linked_primary_id: valid_ids.append(streamer.linked_primary_id)
-        for c in db.query(Streamer).filter(Streamer.linked_primary_id == streamer.id).all(): valid_ids.append(c.id)
-        db.query(ChatLog).filter(ChatLog.streamer_id.in_(valid_ids)).delete(synchronize_session=False)
+    try:
+        if video_id in DETECTED_VIDEOS: del DETECTED_VIDEOS[video_id]
+        DISCONNECT_QUEUE.add(video_id)
         
-        db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="BOT_DISCONNECTED", details=f"Severed bot from {video_id}"))
-        db.commit()
-        
-    return RedirectResponse(url="/?success=disconnected", status_code=303)
+        streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
+        if streamer:
+            valid_ids = [streamer.id]
+            if streamer.linked_primary_id: valid_ids.append(streamer.linked_primary_id)
+            for c in db.query(Streamer).filter(Streamer.linked_primary_id == streamer.id).all(): valid_ids.append(c.id)
+            db.query(ChatLog).filter(ChatLog.streamer_id.in_(valid_ids)).delete(synchronize_session=False)
+            
+            db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="BOT_DISCONNECTED", details=f"Severed bot from {video_id}"))
+            db.commit()
+            
+        return RedirectResponse(url="/?success=disconnected", status_code=303)
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url="/?error=server_crash", status_code=303)
 
 
 # ---------------------------------------------------------
@@ -475,54 +518,70 @@ async def disconnect_bot_manually(request: Request, video_id: str = Form(...), d
 # ---------------------------------------------------------
 @app.post("/api/commands/add")
 async def add_custom_command(request: Request, command_trigger: str = Form(...), response_text: str = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "moderator", "editor"]))):
-    streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
-    eff_id = streamer.effective_id if streamer else request.session.get("streamer_id")
-    trigger = command_trigger.strip().lower() if command_trigger.strip().startswith("!") else f"!{command_trigger.strip().lower()}"
-    
-    db.add(CustomCommand(streamer_id=eff_id, command_trigger=trigger, response_text=response_text))
-    db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="COMMAND_CREATED", details=f"Created {trigger}"))
-    db.commit()
-    return RedirectResponse(url="/?success=command_added", status_code=303)
+    try:
+        streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
+        eff_id = streamer.effective_id if streamer else request.session.get("streamer_id")
+        trigger = command_trigger.strip().lower() if command_trigger.strip().startswith("!") else f"!{command_trigger.strip().lower()}"
+        
+        db.add(CustomCommand(streamer_id=eff_id, command_trigger=trigger, response_text=response_text))
+        db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="COMMAND_CREATED", details=f"Created {trigger}"))
+        db.commit()
+        return RedirectResponse(url="/?success=command_added", status_code=303)
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url="/?error=server_crash", status_code=303)
 
 
 @app.post("/api/commands/delete")
 async def delete_custom_command(request: Request, command_id: int = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "moderator", "editor"]))):
-    streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
-    eff_id = streamer.effective_id if streamer else request.session.get("streamer_id")
-    cmd = db.query(CustomCommand).filter(CustomCommand.id == command_id, CustomCommand.streamer_id == eff_id).first()
-    
-    if cmd: 
-        trigger = cmd.command_trigger
-        db.delete(cmd)
-        db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="COMMAND_DELETED", details=f"Deleted {trigger}"))
-        db.commit()
-    return RedirectResponse(url="/", status_code=303)
+    try:
+        streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
+        eff_id = streamer.effective_id if streamer else request.session.get("streamer_id")
+        cmd = db.query(CustomCommand).filter(CustomCommand.id == command_id, CustomCommand.streamer_id == eff_id).first()
+        
+        if cmd: 
+            trigger = cmd.command_trigger
+            db.delete(cmd)
+            db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="COMMAND_DELETED", details=f"Deleted {trigger}"))
+            db.commit()
+        return RedirectResponse(url="/", status_code=303)
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url="/?error=server_crash", status_code=303)
 
 
 @app.post("/api/vip/add")
 async def add_vip_guest(request: Request, target_username: str = Form(...), custom_reply: str = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "editor"]))):
-    streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
-    eff_id = streamer.effective_id if streamer else request.session.get("streamer_id")
-    target = target_username.strip().lower() if target_username.strip().startswith("@") else f"@{target_username.strip().lower()}"
-    
-    db.add(VIPGuest(streamer_id=eff_id, target_username=target, custom_reply=custom_reply))
-    db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="VIP_ADDED", details=f"Added {target} to VIP Greeter"))
-    db.commit()
-    return RedirectResponse(url="/?success=vip_added", status_code=303)
+    try:
+        streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
+        eff_id = streamer.effective_id if streamer else request.session.get("streamer_id")
+        target = target_username.strip().lower() if target_username.strip().startswith("@") else f"@{target_username.strip().lower()}"
+        
+        db.add(VIPGuest(streamer_id=eff_id, target_username=target, custom_reply=custom_reply))
+        db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="VIP_ADDED", details=f"Added {target} to VIP Greeter"))
+        db.commit()
+        return RedirectResponse(url="/?success=vip_added", status_code=303)
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url="/?error=server_crash", status_code=303)
 
 
 @app.post("/api/vip/delete")
 async def delete_vip_guest(request: Request, vip_id: int = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "editor"]))):
-    streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
-    eff_id = streamer.effective_id if streamer else request.session.get("streamer_id")
-    vip = db.query(VIPGuest).filter(VIPGuest.id == vip_id, VIPGuest.streamer_id == eff_id).first()
-    
-    if vip: 
-        target = vip.target_username
-        db.delete(vip)
-        db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="VIP_REMOVED", details=f"Removed {target} from VIPs"))
-        db.commit()
-    return RedirectResponse(url="/", status_code=303)
+    try:
+        streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
+        eff_id = streamer.effective_id if streamer else request.session.get("streamer_id")
+        vip = db.query(VIPGuest).filter(VIPGuest.id == vip_id, VIPGuest.streamer_id == eff_id).first()
+        
+        if vip: 
+            target = vip.target_username
+            db.delete(vip)
+            db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="VIP_REMOVED", details=f"Removed {target} from VIPs"))
+            db.commit()
+        return RedirectResponse(url="/", status_code=303)
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url="/?error=server_crash", status_code=303)
 
 
 # ---------------------------------------------------------
@@ -537,12 +596,16 @@ async def test_alert(request: Request, db: Session = Depends(get_db), auth: dict
 
 @app.post("/custom-alert")
 async def custom_alert(request: Request, alert_title: str = Form(...), alert_message: str = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "moderator"]))):
-    st = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
-    if st and st.server_sync_code:
-        await overlay_manager.send_alert(st.server_sync_code, {"type": "alert", "event_type": "newSponsorEvent", "author": alert_title, "message": alert_message, "amount": "📢 ANNOUNCEMENT"})
-        db.add(AuditLog(streamer_id=st.id, user_id=auth["user_id"], action="FIRED_CUSTOM_ALERT", details=f"Alert: {alert_title}"))
-        db.commit()
-    return RedirectResponse(url="/", status_code=303)
+    try:
+        st = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
+        if st and st.server_sync_code:
+            await overlay_manager.send_alert(st.server_sync_code, {"type": "alert", "event_type": "newSponsorEvent", "author": alert_title, "message": alert_message, "amount": "📢 ANNOUNCEMENT"})
+            db.add(AuditLog(streamer_id=st.id, user_id=auth["user_id"], action="FIRED_CUSTOM_ALERT", details=f"Alert: {alert_title}"))
+            db.commit()
+        return RedirectResponse(url="/", status_code=303)
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url="/?error=server_crash", status_code=303)
 
 
 # ---------------------------------------------------------
