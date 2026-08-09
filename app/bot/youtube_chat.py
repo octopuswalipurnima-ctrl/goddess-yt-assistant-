@@ -331,7 +331,7 @@ class YouTubeChatMonitor:
                 args = parts[1:]
 
                 if command in ["!checkup", "!cheakup"]:
-                    await self.send_message("🤖 PREMIUM MOD CHECKUP: 1. !adduk !test hi 2. !edituk !test yo 3. !deluk !test | Dev Discord: 998489383239946292", live_chat_id)
+                    await self.send_message("🤖 PREMIUM MOD CHECKUP: 1. !adduk !test hi 2. !edituk !test yo 3. !deluk !test 4. !reptuk !test 5 5. !timeout @user [secs] 6. !ban @user | Dev Discord: 998489383239946292", live_chat_id)
                     return
                 elif command == "!adduk" and len(args) >= 2:
                     trig = args[0].strip().lower()
@@ -368,6 +368,28 @@ class YouTubeChatMonitor:
                     else:
                         await self.send_message(f"❌ Command '{trig}' not found.", live_chat_id)
                     return
+                elif command == "!reptuk" and len(args) >= 2:
+                    trig = args[0].strip().lower()
+                    if not trig.startswith("!"): trig = f"!{trig}"
+                    
+                    try:
+                        interval = int(args[1])
+                        existing = db.query(CustomCommand).filter(CustomCommand.streamer_id == effective_id, CustomCommand.command_trigger == trig).first()
+                        
+                        if existing:
+                            existing.interval_minutes = interval
+                            existing.is_active = (interval > 0)
+                            db.commit()
+                            
+                            if interval > 0:
+                                await self.send_message(f"⏱️ Timer set! '{trig}' will now auto-post every {interval} minutes.", live_chat_id)
+                            else:
+                                await self.send_message(f"🛑 Timer stopped for '{trig}'.", live_chat_id)
+                        else:
+                            await self.send_message(f"❌ Command '{trig}' not found. Create it with !adduk first.", live_chat_id)
+                    except ValueError:
+                        await self.send_message("❌ Invalid format. Use: !reptuk !command <minutes>", live_chat_id)
+                    return
                 elif command == "!so" and args:
                     await self.send_message(f"🌟 Huge shoutout to {args[0].replace('@', '')}! Go check out their content!", live_chat_id)
                     return
@@ -402,6 +424,27 @@ class YouTubeChatMonitor:
                         if target in self.monitored_users:
                             self.monitored_users[target]["strikes"] = max(0, self.monitored_users[target]["strikes"] - 1)
                     return
+                elif command == "!timeout" and args:
+                    target = args[0].lower().replace("@", "")
+                    duration = int(args[1]) if len(args) > 1 and args[1].isdigit() else 300
+                    target_user_record = db.query(User).filter(User.username.ilike(f"%{target}%")).first()
+                    if target_user_record:
+                        await self.timeout_user(live_chat_id, target_user_record.youtube_id, duration)
+                        await self.send_message(f"⏱️ @{target} has been timed out for {duration} seconds.", live_chat_id)
+                        await self.observe_and_learn(f"Mod Explicit {duration}s Timeout", target, target_user_record.youtube_id, effective_id, webhook_url)
+                    else:
+                        await self.send_message(f"❌ Could not find YouTube ID for @{target}.", live_chat_id)
+                    return
+                elif command == "!ban" and args:
+                    target = args[0].lower().replace("@", "")
+                    target_user_record = db.query(User).filter(User.username.ilike(f"%{target}%")).first()
+                    if target_user_record:
+                        await self.ban_user(live_chat_id, target_user_record.youtube_id)
+                        await self.send_message(f"🚫 @{target} has been permanently banned from chat.", live_chat_id)
+                        await self.observe_and_learn("Mod Explicit Permanent Ban", target, target_user_record.youtube_id, effective_id, webhook_url)
+                    else:
+                        await self.send_message(f"❌ Could not find YouTube ID for @{target}.", live_chat_id)
+                    return
 
             # ---------------------------------------------------------
             # 💬 AI CHAT CO-HOST: DIRECT QUESTION & ANSWER SYSTEM
@@ -418,21 +461,17 @@ class YouTubeChatMonitor:
 
                     # 15-SECOND RATE LIMIT: Fast enough to chat, slow enough to block spam
                     if now - last_reply_time > 15:
-                        # Grab the recent chat context
                         recent_logs = db.query(ChatLog).filter(ChatLog.streamer_id == effective_id).order_by(ChatLog.timestamp.desc()).limit(6).all()
                         context = [{"username": log.user.username, "text": log.message} for log in reversed(recent_logs)]
                         
-                        # Tell Gemini exactly who is asking and what they said
                         direct_prompt = [f"User '{username}' is directly talking to you. They said: '{message_text}'. Reply to them naturally and answer their question."]
                         
                         reaction = await self.ai.generate_chat_reaction(direct_prompt, context)
                         
                         if reaction:
-                            # Automatically tag the user who asked the question
                             clean_reaction = reaction.replace(f"@{username}", "").strip()
                             await self.send_message(f"@{username} {clean_reaction}", live_chat_id)
                             self.monitored_users[effective_id]['last_bot_reply'] = now
-
 
             # 2. AUTOMATED MODERATION
             if any(word in text_words for word in self.banned_words):
