@@ -26,30 +26,19 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         
         body { 
-            background-color: var(--bg-dark); 
-            color: var(--text-main); 
-            font-family: 'Inter', sans-serif; 
-            min-height: 100vh;
-            background-image: 
-                radial-gradient(circle at 15% 50%, rgba(168, 85, 247, 0.08), transparent 25%),
-                radial-gradient(circle at 85% 30%, rgba(59, 130, 246, 0.08), transparent 25%);
+            background-color: var(--bg-dark); color: var(--text-main); 
+            font-family: 'Inter', sans-serif; min-height: 100vh;
+            background-image: radial-gradient(circle at 15% 50%, rgba(168, 85, 247, 0.08), transparent 25%), radial-gradient(circle at 85% 30%, rgba(59, 130, 246, 0.08), transparent 25%);
         }
 
-        /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #52525b; }
 
-        /* Generic Components */
         .glass-panel {
-            background: var(--panel-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--border-glass);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
+            background: var(--panel-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-glass); border-radius: 12px; padding: 24px; margin-bottom: 24px;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         }
 
@@ -58,16 +47,14 @@
         p { color: var(--text-muted); font-size: 0.9em; line-height: 1.5; margin-bottom: 16px; }
 
         input[type="text"], input[type="number"], select {
-            width: 100%; padding: 12px 16px; border-radius: 8px;
-            border: 1px solid #3f3f46; background: rgba(0,0,0,0.3); color: white;
+            width: 100%; padding: 12px 16px; border-radius: 8px; border: 1px solid #3f3f46; background: rgba(0,0,0,0.3); color: white;
             font-family: 'Inter', sans-serif; transition: border-color 0.2s;
         }
         input:focus, select:focus { outline: none; border-color: var(--accent-primary); }
 
         .btn {
-            padding: 10px 20px; border-radius: 8px; font-weight: 600; border: none;
-            cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px;
-            font-family: 'Inter', sans-serif; text-decoration: none; justify-content: center;
+            padding: 10px 20px; border-radius: 8px; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s; 
+            display: inline-flex; align-items: center; gap: 8px; font-family: 'Inter', sans-serif; text-decoration: none; justify-content: center;
         }
         .btn-primary { background: linear-gradient(135deg, var(--accent-primary), var(--accent-hover)); color: white; }
         .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
@@ -76,79 +63,46 @@
         .btn-success { background: rgba(16, 185, 129, 0.1); color: var(--success); border: 1px solid var(--success); }
         .btn-success:hover { background: var(--success); color: white; }
 
-        /* Toggles (Switches) */
-        .toggle-switch {
-            position: relative; display: inline-block; width: 44px; height: 24px;
-        }
+        .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
         .toggle-switch input { opacity: 0; width: 0; height: 0; }
-        .slider {
-            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #3f3f46; transition: .3s; border-radius: 24px;
-        }
-        .slider:before {
-            position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px;
-            background-color: white; transition: .3s; border-radius: 50%;
-        }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #3f3f46; transition: .3s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
         input:checked + .slider { background-color: var(--success); }
         input:checked + .slider:before { transform: translateX(20px); }
 
-        /* Layout: Login Page */
-        .login-wrapper {
-            display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; text-align: center;
-        }
+        .login-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; text-align: center; }
         .login-wrapper h1 { font-size: 3.5em; font-weight: 700; background: linear-gradient(to right, #fff, #a1a1aa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
 
-        /* Layout: SPA Dashboard */
         .app-container { display: flex; height: 100vh; overflow: hidden; }
         
-        /* Sidebar */
-        .sidebar {
-            width: 260px; background: rgba(9, 9, 11, 0.8); backdrop-filter: blur(20px);
-            border-right: 1px solid var(--border-glass); display: flex; flex-direction: column;
-            padding: 24px 0; z-index: 10;
-        }
+        .sidebar { width: 260px; background: rgba(9, 9, 11, 0.8); backdrop-filter: blur(20px); border-right: 1px solid var(--border-glass); display: flex; flex-direction: column; padding: 24px 0; z-index: 10; }
         .sidebar-brand { padding: 0 24px; margin-bottom: 40px; font-size: 1.5em; font-weight: 700; display: flex; align-items: center; gap: 10px; }
         .sidebar-brand i { color: var(--accent-primary); }
         
         .nav-menu { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 0 12px; }
-        .nav-item {
-            padding: 12px 16px; border-radius: 8px; color: var(--text-muted); cursor: pointer;
-            transition: all 0.2s; display: flex; align-items: center; gap: 12px; font-weight: 500;
-        }
+        .nav-item { padding: 12px 16px; border-radius: 8px; color: var(--text-muted); cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 12px; font-weight: 500; }
         .nav-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
         .nav-item.active { background: rgba(168, 85, 247, 0.15); color: var(--accent-primary); border-right: 3px solid var(--accent-primary); }
         
         .sidebar-footer { margin-top: auto; padding: 24px; border-top: 1px solid var(--border-glass); }
         .user-profile { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-        .avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--info), var(--accent-primary)); display: flex; align-items: center; justify-content: center; font-weight: bold; }
+        .avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--info), var(--accent-primary)); display: flex; align-items: center; justify-content: center; font-weight: bold; text-transform: uppercase;}
 
-        /* Main Content Area */
         .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
         
-        .top-header {
-            height: 70px; border-bottom: 1px solid var(--border-glass); background: rgba(9, 9, 11, 0.6);
-            backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: space-between;
-            padding: 0 32px; z-index: 5;
-        }
+        .top-header { height: 70px; border-bottom: 1px solid var(--border-glass); background: rgba(9, 9, 11, 0.6); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: space-between; padding: 0 32px; z-index: 5; }
+        .role-badge { background: rgba(168, 85, 247, 0.2); color: var(--accent-primary); border: 1px solid var(--accent-primary); padding: 4px 12px; border-radius: 20px; font-size: 0.85em; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;}
         
         .workspace { flex: 1; overflow-y: auto; padding: 32px; }
         
-        /* Tab Logic */
         .tab-content { display: none; animation: fadeIn 0.3s ease-in-out; }
         .tab-content.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* Specific Modules */
-        .status-pulse {
-            width: 10px; height: 10px; border-radius: 50%; background: var(--success);
-            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); animation: pulse 2s infinite; margin-right: 8px; display: inline-block;
-        }
+        .status-pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); animation: pulse 2s infinite; margin-right: 8px; display: inline-block; }
         @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
 
-        .chat-terminal {
-            background: #000; border: 1px solid #333; border-radius: 8px; height: 350px;
-            overflow-y: auto; padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 0.9em;
-        }
+        .chat-terminal { background: #000; border: 1px solid #333; border-radius: 8px; height: 350px; overflow-y: auto; padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 0.9em; }
         .chat-msg { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
         .chat-time { color: #52525b; font-size: 0.85em; margin-right: 8px; }
         .chat-badge { background: var(--info); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: bold; margin-right: 8px; }
@@ -157,20 +111,13 @@
 
         table { width: 100%; border-collapse: collapse; margin-top: 16px; }
         th { text-align: left; padding: 12px; color: var(--text-muted); font-weight: 500; border-bottom: 1px solid var(--border-glass); }
-        td { padding: 12px; border-bottom: 1px solid var(--border-glass); }
+        td { padding: 12px; border-bottom: 1px solid var(--border-glass); font-size: 0.9em; }
         tr:hover td { background: rgba(255,255,255,0.02); }
 
         .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.05); }
-        
-        /* Grid Layouts */
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-
-        .stat-card { text-align: center; padding: 20px; background: rgba(0,0,0,0.3); border-radius: 12px; border: 1px solid var(--border-glass); }
-        .stat-val { font-size: 2em; font-weight: 700; color: var(--text-main); margin-top: 8px; }
-        .stat-label { color: var(--text-muted); font-size: 0.85em; text-transform: uppercase; letter-spacing: 1px; }
-
-        .alert-box { padding: 16px; border-radius: 8px; margin-bottom: 24px; font-weight: 500; display: flex; align-items: center; gap: 12px; }
+        
+        .alert-box { padding: 16px; border-radius: 8px; margin-bottom: 24px; font-weight: 500; display: flex; align-items: center; gap: 12px; word-break: break-all; }
         .alert-success { background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); color: var(--success); }
         .alert-error { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); color: var(--danger); }
         .alert-warning { background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning); color: var(--warning); }
@@ -185,18 +132,12 @@
             <i class="fa-solid fa-crown" style="font-size: 3em; color: var(--accent-primary); margin-bottom: 20px;"></i>
             <h1>Goddess AI</h1>
             <p style="font-size: 1.1em; margin-bottom: 32px;">The premium multi-dialect chat moderator and loyalty engine for professional broadcasters.</p>
-            <a href="/login" class="btn btn-primary" style="width: 100%; font-size: 1.2em; padding: 16px;"><i class="fa-brands fa-youtube"></i> Authenticate with YouTube</a>
             
-            <div style="margin-top: 40px; border-top: 1px solid var(--border-glass); padding-top: 24px; text-align: left;">
-                <h4 style="margin-bottom: 8px; color: var(--text-muted);">Guest Mode Summoner</h4>
-                <form action="/guest-join" method="POST" style="display: flex; gap: 10px;">
-                    <input type="text" name="stream_url" placeholder="https://youtube.com/watch?v=..." required>
-                    <button type="submit" class="btn" style="background: var(--info); color: white;"><i class="fa-solid fa-bolt"></i> Deploy</button>
-                </form>
-                {% if request.query_params.get('guest') == 'true' %}
-                    <div class="alert-box alert-success" style="margin-top: 16px; padding: 12px;"><i class="fa-solid fa-check-circle"></i> Bot summoned to chat.</div>
-                {% endif %}
-            </div>
+            {% if request.query_params.get('error') == 'unauthorized_role' %}
+                <div class="alert-box alert-error" style="justify-content: center;"><i class="fa-solid fa-shield-halved"></i> Access Denied. Insufficient Role Permissions.</div>
+            {% endif %}
+
+            <a href="/login" class="btn btn-primary" style="width: 100%; font-size: 1.2em; padding: 16px;"><i class="fa-brands fa-youtube"></i> Authenticate with YouTube</a>
         </div>
     </div>
     
@@ -209,9 +150,26 @@
             <div class="sidebar-brand"><i class="fa-solid fa-crown"></i> Goddess AI</div>
             <ul class="nav-menu">
                 <li class="nav-item active" onclick="switchTab('tab-overview')"><i class="fa-solid fa-chart-pie" style="width: 20px;"></i> Overview</li>
-                <li class="nav-item" onclick="switchTab('tab-moderation')"><i class="fa-solid fa-shield-halved" style="width: 20px;"></i> AI Moderation</li>
+                
+                <!-- Role Based Rendering: Only Owners and Managers see AI Settings -->
+                {% if settings.user_role in ['owner', 'manager'] %}
+                <li class="nav-item" onclick="switchTab('tab-moderation')"><i class="fa-solid fa-brain" style="width: 20px;"></i> AI Moderation</li>
+                {% endif %}
+
+                <!-- Editors, Managers, Owners see Commands/VIPs -->
+                {% if settings.user_role in ['owner', 'manager', 'editor'] %}
                 <li class="nav-item" onclick="switchTab('tab-economy')"><i class="fa-solid fa-store" style="width: 20px;"></i> Creator Economy</li>
-                <li class="nav-item" onclick="switchTab('tab-widgets')"><i class="fa-solid fa-layer-group" style="width: 20px;"></i> Overlays & Settings</li>
+                {% endif %}
+
+                <!-- Mods, Managers, Owners see OBS/Alerts -->
+                {% if settings.user_role in ['owner', 'manager', 'moderator'] %}
+                <li class="nav-item" onclick="switchTab('tab-widgets')"><i class="fa-solid fa-layer-group" style="width: 20px;"></i> Overlays & Widgets</li>
+                {% endif %}
+
+                <!-- Only Owners and Managers see Team settings -->
+                {% if settings.user_role in ['owner', 'manager'] %}
+                <li class="nav-item" onclick="switchTab('tab-team')"><i class="fa-solid fa-users-gear" style="width: 20px;"></i> Team & Security</li>
+                {% endif %}
             </ul>
             
             <div class="sidebar-footer">
@@ -231,95 +189,79 @@
             <!-- TOP HEADER -->
             <header class="top-header">
                 <div style="display: flex; align-items: center; gap: 16px; flex: 1;">
-                    <i class="fa-solid fa-magnifying-glass" style="color: var(--text-muted);"></i>
-                    <input type="text" placeholder="Search viewer profiles, commands..." style="max-width: 400px; background: transparent; border: none; padding: 0;">
+                    <span class="role-badge"><i class="fa-solid fa-user-shield"></i> {{ settings.user_role }}</span>
                 </div>
                 <div style="display: flex; gap: 12px;">
+                    {% if settings.user_role in ['owner', 'manager', 'moderator'] %}
                     <form action="/api/deploy-bot" method="POST" style="display: flex; gap: 8px;">
                         <input type="text" name="stream_url" placeholder="Paste YouTube Live URL..." style="width: 250px;" required>
                         <button type="submit" class="btn btn-primary"><i class="fa-solid fa-robot"></i> Force Deploy</button>
                     </form>
+                    {% endif %}
                 </div>
             </header>
 
             <div class="workspace">
                 
-                <!-- ALERTS SYSTEM (Global) -->
-                {% if request.query_params.get('success') == 'disconnected' %}
-                    <div class="alert-box alert-success"><i class="fa-solid fa-check"></i> Connection severed. YouTube API usage returned to 0%.</div>
-                {% elif request.query_params.get('success') == 'bot_deployed' %}
-                    <div class="alert-box alert-success"><i class="fa-solid fa-check"></i> Protocol Successful: Target acquired and Bot deployed!</div>
-                {% elif request.query_params.get('error') == 'not_live' %}
-                    <div class="alert-box alert-warning"><i class="fa-solid fa-triangle-exclamation"></i> Scan Complete: You are not currently live on YouTube.</div>
-                {% elif request.query_params.get('error') == 'api_crash' %}
-                    <div class="alert-box alert-error"><i class="fa-solid fa-circle-exclamation"></i> API Error: Google rejected the request. Check config.</div>
+                <!-- GLOBAL ALERTS -->
+                {% if request.query_params.get('success') == 'team_joined' %}
+                    <div class="alert-box alert-success"><i class="fa-solid fa-handshake"></i> You have successfully joined the moderation team!</div>
+                {% elif request.query_params.get('invite_generated') %}
+                    <div class="alert-box alert-success" style="flex-direction: column; align-items: flex-start;">
+                        <div style="margin-bottom: 8px;"><i class="fa-solid fa-link"></i> Magic Invite Link Generated (Valid for 24h):</div>
+                        <input type="text" readonly value="{{ request.query_params.get('invite_generated') }}" onclick="this.select()" style="font-family: monospace; color: var(--accent-primary);">
+                    </div>
                 {% endif %}
 
                 <!-- ========================================== -->
                 <!-- TAB 1: OVERVIEW & TERMINAL                 -->
                 <!-- ========================================== -->
                 <div id="tab-overview" class="tab-content active">
-                    <div class="glass-panel" style="border-left: 4px solid var(--accent-primary);">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <h2>Active Bot Sessions</h2>
-                                <p style="margin: 0;">Disconnecting immediately drops YouTube API usage to 0%.</p>
-                            </div>
-                            <form action="/api/panic-button" method="POST" style="margin: 0;">
-                                <button type="submit" class="btn btn-danger" style="box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);"><i class="fa-solid fa-tower-broadcast"></i> Panic Connect</button>
-                            </form>
-                        </div>
-                        
-                        <div style="margin-top: 20px;">
-                            {% if active_videos %}
-                                {% for vid in active_videos %}
-                                <div class="setting-row" style="background: rgba(16, 185, 129, 0.05); border-color: rgba(16, 185, 129, 0.2);">
-                                    <div>
-                                        <div style="color: var(--success); font-weight: bold; font-size: 0.9em; margin-bottom: 4px;"><span class="status-pulse"></span>MONITORING LIVE</div>
-                                        <div style="font-family: monospace; color: #fff;">Video ID: {{ vid }}</div>
-                                    </div>
-                                    <form action="/api/disconnect-bot" method="POST" style="margin: 0;">
-                                        <input type="hidden" name="video_id" value="{{ vid }}">
-                                        <button type="submit" class="btn btn-danger"><i class="fa-solid fa-stop"></i> Disconnect</button>
-                                    </form>
-                                </div>
-                                {% endfor %}
-                            {% else %}
-                                <div style="text-align: center; padding: 30px; background: rgba(0,0,0,0.3); border-radius: 8px; color: var(--text-muted); border: 1px dashed #333;">
-                                    <i class="fa-solid fa-moon" style="font-size: 2em; margin-bottom: 10px; display: block;"></i>
-                                    Bot is in Standby Mode (0 API Usage). It will auto-wake on WebSub ping.
-                                </div>
-                            {% endif %}
-                        </div>
-                    </div>
-
                     <div class="grid-2">
                         <div class="glass-panel">
                             <h3><i class="fa-solid fa-terminal" style="color: var(--info);"></i> Unified Live Chat</h3>
-                            <p>Reads from local DB. Zero API quota consumed.</p>
                             <div id="chat-container" class="chat-terminal">
                                 <div style="color: #52525b; text-align: center; font-style: italic; margin-top: 20px;">Establishing secure local connection...</div>
                             </div>
                         </div>
 
                         <div>
-                            <div class="grid-2" style="margin-bottom: 24px;">
-                                <div class="stat-card">
-                                    <div class="stat-label">Total Unique Viewers</div>
-                                    <div class="stat-val" style="color: var(--info);">{{ viewers|length }}</div>
+                            <div class="glass-panel" style="border-left: 4px solid var(--accent-primary);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                                    <h3>Active Bot Sessions</h3>
+                                    {% if settings.user_role in ['owner', 'manager'] %}
+                                    <form action="/api/panic-button" method="POST" style="margin: 0;">
+                                        <button type="submit" class="btn btn-danger"><i class="fa-solid fa-tower-broadcast"></i> Panic Connect</button>
+                                    </form>
+                                    {% endif %}
                                 </div>
-                                <div class="stat-card">
-                                    <div class="stat-label">Custom Commands</div>
-                                    <div class="stat-val" style="color: var(--accent-primary);">{{ commands|length }}</div>
-                                </div>
+                                
+                                {% if active_videos %}
+                                    {% for vid in active_videos %}
+                                    <div class="setting-row" style="background: rgba(16, 185, 129, 0.05); border-color: rgba(16, 185, 129, 0.2);">
+                                        <div>
+                                            <div style="color: var(--success); font-weight: bold; font-size: 0.9em; margin-bottom: 4px;"><span class="status-pulse"></span>LIVE</div>
+                                            <div style="font-family: monospace; color: #fff;">{{ vid }}</div>
+                                        </div>
+                                        {% if settings.user_role in ['owner', 'manager', 'moderator'] %}
+                                        <form action="/api/disconnect-bot" method="POST" style="margin: 0;">
+                                            <input type="hidden" name="video_id" value="{{ vid }}">
+                                            <button type="submit" class="btn btn-danger"><i class="fa-solid fa-stop"></i></button>
+                                        </form>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <div style="text-align: center; padding: 20px; color: var(--text-muted); border: 1px dashed #333; border-radius: 8px;">Bot is in Standby Mode.</div>
+                                {% endif %}
                             </div>
 
                             <div class="glass-panel">
-                                <h3><i class="fa-solid fa-trophy" style="color: var(--warning);"></i> Top Viewers (Current DB)</h3>
+                                <h3><i class="fa-solid fa-trophy" style="color: var(--warning);"></i> Top Viewers</h3>
                                 {% if viewers %}
                                 <table>
                                     <tr><th>User</th><th>Level</th><th style="text-align: right;">XP</th></tr>
-                                    {% for viewer in viewers[:5] %}
+                                    {% for viewer in viewers[:4] %}
                                     <tr>
                                         <td style="font-weight: 500; color: #fff;">{{ viewer.username }}</td>
                                         <td><span style="background: #3f3f46; padding: 2px 8px; border-radius: 12px; font-size: 0.85em;">Lvl {{ viewer.level }}</span></td>
@@ -327,8 +269,6 @@
                                     </tr>
                                     {% endfor %}
                                 </table>
-                                {% else %}
-                                <p style="text-align: center; padding: 20px; font-style: italic;">No viewers logged yet.</p>
                                 {% endif %}
                             </div>
                         </div>
@@ -336,24 +276,21 @@
                 </div>
 
                 <!-- ========================================== -->
-                <!-- TAB 2: AI MODERATION                       -->
+                <!-- TAB 2: AI MODERATION (Owners/Managers)     -->
                 <!-- ========================================== -->
+                {% if settings.user_role in ['owner', 'manager'] %}
                 <div id="tab-moderation" class="tab-content">
                     <div class="glass-panel">
                         <h3><i class="fa-solid fa-brain" style="color: var(--success);"></i> AI Control Modules</h3>
-                        <p>Toggle the core cognitive functions of Goddess AI.</p>
                         
                         <div class="setting-row">
                             <div>
                                 <div style="color: #fff; font-weight: 600; font-size: 1.1em; margin-bottom: 4px;">💬 AI Chat Co-Host</div>
-                                <div style="color: var(--text-muted); font-size: 0.9em;">Bot will reply naturally when users tag it or ask questions (15s cooldown).</div>
+                                <div style="color: var(--text-muted); font-size: 0.9em;">Bot will reply naturally when users tag it (15s cooldown).</div>
                             </div>
                             <form action="/toggle-setting" method="POST" style="margin:0;">
                                 <input type="hidden" name="setting" value="ai_cohost">
-                                <label class="toggle-switch">
-                                    <input type="checkbox" onChange="this.form.submit()" {% if settings.ai_cohost_enabled %}checked{% endif %}>
-                                    <span class="slider"></span>
-                                </label>
+                                <label class="toggle-switch"><input type="checkbox" onChange="this.form.submit()" {% if settings.ai_cohost_enabled %}checked{% endif %}><span class="slider"></span></label>
                             </form>
                         </div>
 
@@ -364,66 +301,33 @@
                             </div>
                             <form action="/toggle-setting" method="POST" style="margin:0;">
                                 <input type="hidden" name="setting" value="manual_mod_mode">
-                                <label class="toggle-switch">
-                                    <input type="checkbox" onChange="this.form.submit()" {% if settings.manual_mod_mode %}checked{% endif %}>
-                                    <span class="slider"></span>
-                                </label>
+                                <label class="toggle-switch"><input type="checkbox" onChange="this.form.submit()" {% if settings.manual_mod_mode %}checked{% endif %}><span class="slider"></span></label>
                             </form>
-                        </div>
-
-                        <div class="setting-row">
-                            <div>
-                                <div style="color: #fff; font-weight: 600; font-size: 1.1em; margin-bottom: 4px;">🧠 AI Mod Observer (Learning)</div>
-                                <div style="color: var(--text-muted); font-size: 0.9em;">Silently observes human mod actions to automatically harden your Layer 1 filter.</div>
-                            </div>
-                            <form action="/toggle-setting" method="POST" style="margin:0;">
-                                <input type="hidden" name="setting" value="ai_observer_mode">
-                                <label class="toggle-switch">
-                                    <input type="checkbox" onChange="this.form.submit()" {% if settings.ai_observer_mode %}checked{% endif %}>
-                                    <span class="slider"></span>
-                                </label>
-                            </form>
-                        </div>
-                    </div>
-
-                    <div class="grid-3">
-                        <div class="stat-card" style="border-top: 3px solid var(--success);">
-                            <div class="stat-label">Local Rule Bypass Rate</div>
-                            <div class="stat-val" style="color: var(--success);">98.6%</div>
-                        </div>
-                        <div class="stat-card" style="border-top: 3px solid var(--info);">
-                            <div class="stat-label">Structural Cache Hits</div>
-                            <div class="stat-val" style="color: var(--info);">412 ms</div>
-                        </div>
-                        <div class="stat-card" style="border-top: 3px solid var(--accent-primary);">
-                            <div class="stat-label">Gemini API Calls</div>
-                            <div class="stat-val" style="color: var(--accent-primary);">14 Reqs</div>
                         </div>
                     </div>
                 </div>
+                {% endif %}
 
                 <!-- ========================================== -->
                 <!-- TAB 3: CREATOR ECONOMY                     -->
                 <!-- ========================================== -->
+                {% if settings.user_role in ['owner', 'manager', 'editor'] %}
                 <div id="tab-economy" class="tab-content">
                     <div class="grid-2">
                         <div class="glass-panel">
                             <h3><i class="fa-solid fa-bolt" style="color: var(--accent-primary);"></i> Custom Chat Commands</h3>
-                            <p>Configure bot triggers and automated timers (!reptuk).</p>
-                            
                             <form action="/api/commands/add" method="POST" style="display: flex; gap: 8px; margin-bottom: 20px;">
                                 <input type="text" name="command_trigger" placeholder="!trigger" style="width: 120px;" required>
                                 <input type="text" name="response_text" placeholder="Bot response text..." style="flex: 1;" required>
                                 <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i></button>
                             </form>
-
                             <div style="max-height: 300px; overflow-y: auto;">
                                 <table>
                                     <tr><th>Trigger</th><th>Response</th><th></th></tr>
                                     {% for cmd in commands %}
                                     <tr>
                                         <td style="color: var(--accent-primary); font-family: monospace; font-weight: bold;">{{ cmd.command_trigger }}</td>
-                                        <td style="color: #d4d4d8; font-size: 0.9em;">{{ cmd.response_text }}</td>
+                                        <td style="color: #d4d4d8;">{{ cmd.response_text }}</td>
                                         <td style="text-align: right;">
                                             <form action="/api/commands/delete" method="POST" style="margin:0;">
                                                 <input type="hidden" name="command_id" value="{{ cmd.id }}">
@@ -436,156 +340,109 @@
                             </div>
                         </div>
 
-                        <div>
-                            <div class="glass-panel">
-                                <h3><i class="fa-solid fa-star" style="color: #f43f5e;"></i> VIP Entrance Greeter</h3>
-                                <p>Automated custom replies on their first chat message.</p>
-                                <form action="/api/vip/add" method="POST" style="display: flex; gap: 8px; margin-bottom: 16px;">
-                                    <input type="text" name="target_username" placeholder="@Username" style="width: 140px;" required>
-                                    <input type="text" name="custom_reply" placeholder="Welcome back VIP!" style="flex: 1;" required>
-                                    <button type="submit" class="btn" style="background: #f43f5e; color: white;"><i class="fa-solid fa-plus"></i></button>
-                                </form>
-                                <div style="max-height: 200px; overflow-y: auto;">
-                                    <table>
-                                        {% for vip in vips %}
-                                        <tr>
-                                            <td style="color: #f43f5e; font-family: monospace;">{{ vip.target_username }}</td>
-                                            <td style="font-size: 0.85em;">{{ vip.custom_reply }}</td>
-                                            <td style="text-align: right;">
-                                                <form action="/api/vip/delete" method="POST" style="margin:0;">
-                                                    <input type="hidden" name="vip_id" value="{{ vip.id }}">
-                                                    <button type="submit" style="background:none; border:none; color: var(--danger); cursor: pointer;"><i class="fa-solid fa-xmark"></i></button>
-                                                </form>
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </table>
-                                </div>
-                            </div>
-
-                            <div class="glass-panel">
-                                <h3><i class="fa-solid fa-gamepad" style="color: var(--info);"></i> 1v1 Arena Queue</h3>
-                                <p>Users type <code>!join</code>. Mods pull with <code>!next</code>. AFK purged after 10m.</p>
-                                <div style="background: #000; padding: 16px; border-radius: 8px; font-family: monospace; color: var(--text-muted);">
-                                    <span style="color: var(--info);">#1</span> @RahulGamer99<br>
-                                    <span style="color: #52525b;">#2</span> @BGMI_King<br>
-                                </div>
+                        <div class="glass-panel">
+                            <h3><i class="fa-solid fa-star" style="color: #f43f5e;"></i> VIP Entrance Greeter</h3>
+                            <form action="/api/vip/add" method="POST" style="display: flex; gap: 8px; margin-bottom: 16px;">
+                                <input type="text" name="target_username" placeholder="@Username" style="width: 140px;" required>
+                                <input type="text" name="custom_reply" placeholder="Welcome back VIP!" style="flex: 1;" required>
+                                <button type="submit" class="btn" style="background: #f43f5e; color: white;"><i class="fa-solid fa-plus"></i></button>
+                            </form>
+                            <div style="max-height: 200px; overflow-y: auto;">
+                                <table>
+                                    {% for vip in vips %}
+                                    <tr>
+                                        <td style="color: #f43f5e; font-family: monospace;">{{ vip.target_username }}</td>
+                                        <td>{{ vip.custom_reply }}</td>
+                                        <td style="text-align: right;">
+                                            <form action="/api/vip/delete" method="POST" style="margin:0;">
+                                                <input type="hidden" name="vip_id" value="{{ vip.id }}">
+                                                <button type="submit" style="background:none; border:none; color: var(--danger); cursor: pointer;"><i class="fa-solid fa-xmark"></i></button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </table>
                             </div>
                         </div>
                     </div>
                 </div>
+                {% endif %}
 
                 <!-- ========================================== -->
                 <!-- TAB 4: WIDGETS & SETTINGS                  -->
                 <!-- ========================================== -->
+                {% if settings.user_role in ['owner', 'manager', 'moderator'] %}
                 <div id="tab-widgets" class="tab-content">
                     <div class="grid-2">
-                        
-                        <!-- OBS Widget Controls -->
                         <div class="glass-panel">
                             <h3><i class="fa-solid fa-layer-group" style="color: var(--accent-primary);"></i> OBS Browser Source</h3>
-                            <p>Paste this URL into OBS. Test it live in the preview below.</p>
-                            
                             <div style="display: flex; gap: 8px; margin-bottom: 24px;">
                                 <input type="text" id="obsLink" readonly value="https://{{ request.headers.get('host') }}/overlay/{{ settings.server_sync_code }}" style="color: var(--accent-primary); font-family: monospace;">
                                 <button onclick="copyOBS()" class="btn btn-primary"><i class="fa-solid fa-copy"></i></button>
                             </div>
-
                             <div style="width: 100%; height: 240px; background: #000; border-radius: 8px; border: 2px dashed #3f3f46; position: relative; overflow: hidden; margin-bottom: 16px;">
-                                <iframe src="/overlay/{{ settings.server_sync_code }}" style="width: 100%; height: 100%; border: none; position: relative; z-index: 2;"></iframe>
+                                <iframe src="/overlay/{{ settings.server_sync_code }}" style="width: 100%; height: 100%; border: none;"></iframe>
                             </div>
-
-                            <form action="/test-alert" method="POST" style="margin-bottom: 16px;">
-                                <button type="submit" class="btn btn-success" style="width: 100%;"><i class="fa-solid fa-bell"></i> Fire Test Alert</button>
+                            <form action="/custom-alert" method="POST" style="display: flex; flex-direction: column; gap: 8px;">
+                                <input type="text" name="alert_title" placeholder="Heading (e.g. GIVEAWAY!)" required>
+                                <input type="text" name="alert_message" placeholder="Subtext..." required>
+                                <button type="submit" class="btn" style="background: var(--accent-primary); color: white;"><i class="fa-solid fa-paper-plane"></i> Launch Custom Alert Widget</button>
                             </form>
-                            
-                            <div style="border-top: 1px solid var(--border-glass); padding-top: 16px;">
-                                <h4 style="font-size: 0.9em; margin-bottom: 8px;">Custom Announcement</h4>
-                                <form action="/custom-alert" method="POST" style="display: flex; flex-direction: column; gap: 8px;">
-                                    <input type="text" name="alert_title" placeholder="Heading (e.g. GIVEAWAY!)" required>
-                                    <input type="text" name="alert_message" placeholder="Subtext..." required>
-                                    <button type="submit" class="btn" style="background: var(--accent-primary); color: white;"><i class="fa-solid fa-paper-plane"></i> Launch Widget</button>
-                                </form>
-                            </div>
                         </div>
-
-                        <!-- Platform Settings -->
-                        <div>
-                            <!-- Multi-Channel Sync -->
-                            <div class="glass-panel">
-                                <h3><i class="fa-solid fa-link" style="color: var(--info);"></i> Multi-Channel Sync</h3>
-                                <p>Link a secondary YouTube account to share Economy and Commands.</p>
-                                
-                                {% if settings.linked_primary_id %}
-                                    <div class="alert-box alert-success" style="margin-bottom: 16px;">
-                                        <div>
-                                            <div style="font-weight: bold; margin-bottom: 4px;">✅ Linked to Primary ID #{{ settings.linked_primary_id }}</div>
-                                            <form action="/api/account/unlink" method="POST" style="margin: 0;">
-                                                <button type="submit" class="btn btn-danger" style="padding: 6px 12px; font-size: 0.8em;">Sever Link</button>
-                                            </form>
-                                        </div>
-                                    </div>
-                                    <div class="setting-row" style="background: transparent; padding: 0; border: none;">
-                                        <span style="font-size: 0.9em;">Sync Databases?</span>
-                                        <form action="/toggle-setting" method="POST" style="margin:0;">
-                                            <input type="hidden" name="setting" value="sync_settings">
-                                            <label class="toggle-switch">
-                                                <input type="checkbox" onChange="this.form.submit()" {% if settings.sync_settings %}checked{% endif %}>
-                                                <span class="slider"></span>
-                                            </label>
-                                        </form>
-                                    </div>
-                                {% else %}
-                                    <form action="/api/account/link" method="POST" style="display: flex; gap: 8px;">
-                                        <input type="text" name="target_sync_code" placeholder="Primary Sync Code..." required>
-                                        <button type="submit" class="btn btn-primary">Link</button>
-                                    </form>
-                                {% endif %}
-                            </div>
-
-                            <!-- Discord Integration -->
-                            <div class="glass-panel">
-                                <h3><i class="fa-brands fa-discord" style="color: #5865F2;"></i> Discord Integration</h3>
-                                {% if settings.is_discord_linked %}
-                                    <div class="alert-box alert-success" style="margin:0;">✅ Server Actively Linked!</div>
-                                {% else %}
-                                    <a href="#" class="btn" style="background: #5865F2; color: white; width: 100%; margin-bottom: 12px;"><i class="fa-brands fa-discord"></i> 1. Add Bot to Server</a>
-                                    <p style="margin-bottom: 4px; font-size: 0.85em;">2. Run this command in your server:</p>
-                                    <div style="background: #000; padding: 12px; border-radius: 6px; font-family: monospace; color: var(--accent-primary); border: 1px solid #333;">
-                                        /setup sync_code:{{ settings.server_sync_code }}
-                                    </div>
-                                {% endif %}
-                            </div>
-
-                            <!-- PRO Upgrade -->
-                            <div class="glass-panel" style="background: linear-gradient(135deg, rgba(30,30,36,0.9), rgba(45,32,58,0.9)); border-color: var(--accent-primary);">
-                                <h3 style="color: var(--warning);"><i class="fa-solid fa-star"></i> Upgrade to PRO (₹50/mo)</h3>
-                                <ul style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 16px; padding-left: 20px;">
-                                    <li style="margin-bottom: 6px;">Unlimited Visual Builder Overlays</li>
-                                    <li style="margin-bottom: 6px;">Infinite Store Items & Custom CSS</li>
-                                    <li>Priority Background Worker Queue</li>
-                                </ul>
-                                <button class="btn" style="background: var(--warning); color: #000; width: 100%;"><i class="fa-solid fa-credit-card"></i> Unlock PRO with Razorpay</button>
-                            </div>
-                        </div>
-
                     </div>
                 </div>
+                {% endif %}
+
+                <!-- ========================================== -->
+                <!-- TAB 5: TEAM & SECURITY (Owners/Managers)   -->
+                <!-- ========================================== -->
+                {% if settings.user_role in ['owner', 'manager'] %}
+                <div id="tab-team" class="tab-content">
+                    <div class="grid-2">
+                        <div class="glass-panel">
+                            <h3><i class="fa-solid fa-user-plus" style="color: var(--info);"></i> Generate Magic Invite</h3>
+                            <p>Send a secure 24-hour link to a moderator so they can access your dashboard without needing your Google password.</p>
+                            
+                            <form action="/api/team/generate-invite" method="POST" style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px;">
+                                <select name="role" required style="cursor: pointer;">
+                                    <option value="" disabled selected>Select Team Role...</option>
+                                    <option value="manager">Manager (Can edit settings, add mods)</option>
+                                    <option value="moderator">Moderator (Can view chat, fire alerts)</option>
+                                    <option value="editor">Editor (Can only add commands/VIPs)</option>
+                                </select>
+                                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-link"></i> Create Magic Link</button>
+                            </form>
+                        </div>
+
+                        <div class="glass-panel">
+                            <h3><i class="fa-solid fa-shield-halved" style="color: var(--warning);"></i> Active Team Members</h3>
+                            <p>Users currently bound to this dashboard instance.</p>
+                            <table>
+                                <tr><th>User / Role</th><th>Added</th></tr>
+                                <tr>
+                                    <td>
+                                        <div style="font-weight: bold; color: #fff;">{{ streamer_name }}</div>
+                                        <div style="color: var(--accent-primary); font-size: 0.85em;">Owner</div>
+                                    </td>
+                                    <td style="color: var(--success);">System Default</td>
+                                </tr>
+                                <!-- Note: Future backend update can loop through streamer.team_members here -->
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
 
             </div>
         </main>
     </div>
     {% endif %}
 
-    <!-- SPA Logic & Chat Reader -->
     <script>
-        // Copy to clipboard
         function copyOBS() {
             var copyText = document.getElementById("obsLink");
             copyText.select();
             document.execCommand("copy");
-            
-            // Temporary Success State
             let btn = event.currentTarget;
             let ogHtml = btn.innerHTML;
             btn.innerHTML = '<i class="fa-solid fa-check"></i>';
@@ -593,26 +450,19 @@
             setTimeout(() => { btn.innerHTML = ogHtml; btn.classList.remove('btn-success'); }, 2000);
         }
 
-        // SPA Tab Switching Logic
         function switchTab(tabId) {
-            // Hide all tabs
             document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-            // Show selected tab
-            document.getElementById(tabId).classList.add('active');
+            const targetTab = document.getElementById(tabId);
+            if(targetTab) targetTab.classList.add('active');
             
-            // Update sidebar UI
             document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
             event.currentTarget.classList.add('active');
-
-            // Save state so page reloads stay on same tab
             sessionStorage.setItem('activeTab', tabId);
         }
 
-        // Restore tab on page reload
         document.addEventListener("DOMContentLoaded", function() { 
             let savedTab = sessionStorage.getItem('activeTab');
-            if(savedTab) {
-                // Find the matching nav item and click it
+            if(savedTab && document.getElementById(savedTab)) {
                 let navs = document.querySelectorAll('.nav-item');
                 for(let nav of navs) {
                     if(nav.getAttribute('onclick').includes(savedTab)) {
@@ -623,7 +473,6 @@
             }
         });
 
-        // Live Chat Database Reader
         let lastChatId = 0;
         const chatBox = document.getElementById('chat-container');
 
@@ -639,27 +488,15 @@
                     data.messages.forEach(msg => {
                         const msgDiv = document.createElement('div');
                         msgDiv.className = 'chat-msg';
-                        msgDiv.innerHTML = `
-                            <span class="chat-time">[${msg.time}]</span> 
-                            <span class="chat-badge">${msg.badge}</span>
-                            <span class="chat-user">${msg.username}:</span> 
-                            <span class="chat-text">${msg.message}</span>
-                        `;
+                        msgDiv.innerHTML = `<span class="chat-time">[${msg.time}]</span> <span class="chat-badge">${msg.badge}</span> <span class="chat-user">${msg.username}:</span> <span class="chat-text">${msg.message}</span>`;
                         chatBox.appendChild(msgDiv);
                         lastChatId = Math.max(lastChatId, msg.id);
                     });
-                    
                     chatBox.scrollTop = chatBox.scrollHeight;
                 }
-            } catch (e) {
-                console.error("Chat sync error:", e);
-            }
+            } catch (e) {}
         }
-
-        if (document.getElementById('chat-container')) {
-            setInterval(fetchChat, 2500);
-            fetchChat();
-        }
+        if (chatBox) { setInterval(fetchChat, 2500); fetchChat(); }
     </script>
 </body>
 </html>
