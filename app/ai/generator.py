@@ -17,29 +17,22 @@ class AIBrain:
             "streamer named 'Goddess'. Goddess plays at a highly competitive level without a gyroscope "
             "(No-Gyro player) focusing on master-class lens sensitivity and flawless AR/shotgun recoil control.\n\n"
             "Your personality is hype, gamer-centric, supportive, witty, and deeply loyal to the community. "
+            "The chat might affectionately call you 'honey' or 'honey bunny'—when they do, reply with a warm, playful, and affectionate tone. "
             "Use standard streaming lingo (e.g., 'cooking', 'clutch', 'choke', 'lobby', 'OP', 'rush'). Keep responses "
             "short, snappy, single-sentence, and perfectly timed. Never sound like a generic text bot."
         )
 
-    async def generate_chat_reaction(self, chat_context: list, recent_messages: list) -> str:
-        """
-        Implements the 70/20/10 rule.
-        70% of the time: Observe silently (return None).
-        20% of the time: React internally but keep quiet unless highly prompted.
-        10% of the time: Speak out loud in chat.
-        """
-        roll = random.randint(1, 100)
-        if roll > 15:  # Tweaked slightly to ~15% to keep chat vibrant but clean
-            return None
-
+    async def generate_chat_reaction(self, direct_prompt: list, recent_messages: list) -> str:
         # Format context data for Gemini
-        formatted_logs = "\n".join([f"{msg['username']}: {msg['text']}" for msg in recent_messages])
+        formatted_logs = "\n".join([f"{msg.get('username', 'User')}: {msg.get('text', '')}" for msg in recent_messages])
+        
+        # Combine the direct prompt and the context logs
+        prompt_instruction = direct_prompt[0] if direct_prompt else "Provide a highly engaging, single-sentence reaction."
         
         prompt = (
-            f"Review the following recent stream chat logs:\n{formatted_logs}\n\n"
-            "Based on the conversation, provide a highly engaging, single-sentence reaction as Goddess's AI co-host. "
-            "Comment on the gameplay intensity, the lobby strength, or complement Goddess's non-gyro crosshair placement. "
-            "Do not include emojis, quotes, or prefixing text. Just say the direct reaction phrase."
+            f"Review the following recent stream chat logs for context:\n{formatted_logs}\n\n"
+            f"INSTRUCTION: {prompt_instruction}\n"
+            "Do not include emojis unless appropriate, no quotes, or prefixing text. Just say the direct reaction phrase."
         )
 
         try:
@@ -47,7 +40,7 @@ class AIBrain:
             sys_state = db.query(SystemState).first()
             if sys_state and sys_state.gemini_api_calls >= sys_state.gemini_api_cap:
                 db.close()
-                return None
+                return "I'm focusing on the gameplay right now, ask me again in a bit!"
 
             response = self.client.models.generate_content(
                 model=self.model_name,
@@ -55,7 +48,7 @@ class AIBrain:
                 config=types.GenerateContentConfig(
                     system_instruction=self.base_persona,
                     temperature=0.8,
-                    max_output_tokens=50
+                    max_output_tokens=60
                 )
             )
 
@@ -63,12 +56,18 @@ class AIBrain:
                 sys_state.gemini_api_calls += 1
                 db.commit()
             db.close()
+            
+            # 🚨 THE FIX: Safely check if text exists before calling .strip()
+            if not response or not hasattr(response, 'text') or not response.text:
+                return "I'm focusing on the stream right now, ask me again in a bit!"
+
             return response.text.strip()
 
         except Exception as e:
-            db.close()
+            try: db.close() 
+            except: pass
             print(f"Gemini API Error: {e}")
-            return None
+            return "I'm focusing on the stream right now, ask me again in a bit!"
 
     async def generate_giveaway_reminder(self) -> str:
         """Generates dynamic variations of giveaway announcements so they never repeat."""
@@ -99,9 +98,15 @@ class AIBrain:
                 sys_state.gemini_api_calls += 1
                 db.commit()
             db.close()
+            
+            # 🚨 THE FIX: Safely check if text exists before calling .strip()
+            if not response or not hasattr(response, 'text') or not response.text:
+                return "Hey chat! Make sure you're active and collecting your stream coins—giveaway details coming up!"
+
             return response.text.strip()
 
         except Exception as e:
-            db.close()
+            try: db.close() 
+            except: pass
             print(f"Gemini Reminder Error: {e}")
             return "Hey chat! Make sure you're active and collecting your stream coins—giveaway details coming up!"

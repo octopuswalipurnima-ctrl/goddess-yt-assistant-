@@ -459,7 +459,7 @@ class YouTubeChatMonitor:
             # ---------------------------------------------------------
             # 💬 AI CHAT CO-HOST: DIRECT QUESTION & ANSWER SYSTEM
             # ---------------------------------------------------------
-            bot_names = ["goddess", "goddess ai", "@goddess", "bot"]
+            bot_names = ["goddess", "goddess ai", "@goddess", "bot", "honey", "honey bunny"]
             
             if any(name in command_text for name in bot_names):
                 if ai_cohost_enabled:
