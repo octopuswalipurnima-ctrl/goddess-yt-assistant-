@@ -726,6 +726,9 @@ class YouTubeChatMonitor:
                             db_session.commit()
 
                         self.active_streams[vid_id]["next_page_token"] = response.get("nextPageToken")
+                        # Reset error counter on successful request
+                        self.active_streams[vid_id]["error_count"] = 0
+                        
                         items = response.get("items", [])
 
                         for item in items:
@@ -754,8 +757,16 @@ class YouTubeChatMonitor:
                                 await self.observe_and_learn(f"Native YouTube {ban_type.capitalize()} Ban", banned_user.get("displayName"), banned_user.get("channelId"), effective_id, webhook_url)
 
                     except Exception as e:
-                        print(f"🚨 [YOUTUBE CHAT LOOP ERROR for {vid_id}] {e}")
-                        del self.active_streams[vid_id]
+                        # 🚨 SAFE RETRY FIX: Don't instantly delete stream on 1 error!
+                        if vid_id in self.active_streams:
+                            err_count = self.active_streams[vid_id].get("error_count", 0) + 1
+                            self.active_streams[vid_id]["error_count"] = err_count
+                            print(f"⚠️ [YOUTUBE CHAT GLITCH] Video {vid_id} error ({err_count}/5): {e}")
+                            
+                            # Only disconnect after 5 CONSECUTIVE failures
+                            if err_count >= 5:
+                                print(f"🚨 [STREAM DISCONNECTED] Severing video {vid_id} after 5 consecutive failures.")
+                                del self.active_streams[vid_id]
                     finally:
                         db_session.close()
 
