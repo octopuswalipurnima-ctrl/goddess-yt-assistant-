@@ -3,690 +3,627 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Goddess AI | Stream Manager</title>
+    <title>Goddess AI | Premium Workspace</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { background-color: #121214; color: #ffffff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
-        .container { width: 100%; max-width: 800px; padding: 40px 20px; }
-        .header { text-align: center; margin-bottom: 40px; }
-        .header h1 { font-size: 3em; margin-bottom: 10px; }
-        .login-btn { background-color: #9333ea; color: white; padding: 15px 30px; border-radius: 8px; text-decoration: none; font-size: 1.2em; font-weight: bold; display: inline-block; transition: background-color 0.3s; }
-        .login-btn:hover { background-color: #a855f7; }
-        .panel { background: #1e1e24; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
-        .panel h3 { margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 10px; color: #e5e7eb; }
-        .btn-submit { background: #a855f7; color: white; padding: 12px 15px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; transition: opacity 0.2s; }
-        .btn-submit:hover { opacity: 0.9; }
-        .btn-logout { background: #ef4444; color: white; padding: 8px 15px; border: none; border-radius: 8px; cursor: pointer; text-decoration: none; float: right; }
-        .discord-invite { display: inline-block; background: #5865F2; padding: 12px 20px; border-radius: 8px; color: white; text-decoration: none; margin-bottom: 15px; font-weight: bold; transition: opacity 0.2s; }
-        .discord-invite:hover { opacity: 0.9; }
+        :root {
+            --bg-dark: #09090b;
+            --panel-bg: rgba(24, 24, 27, 0.65);
+            --border-glass: rgba(255, 255, 255, 0.08);
+            --text-main: #f4f4f5;
+            --text-muted: #a1a1aa;
+            --accent-primary: #a855f7;
+            --accent-hover: #9333ea;
+            --success: #10b981;
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --warning: #f59e0b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body { 
+            background-color: var(--bg-dark); 
+            color: var(--text-main); 
+            font-family: 'Inter', sans-serif; 
+            min-height: 100vh;
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(168, 85, 247, 0.08), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(59, 130, 246, 0.08), transparent 25%);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+
+        /* Generic Components */
+        .glass-panel {
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-glass);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        h2, h3, h4 { color: #fff; font-weight: 600; margin-bottom: 16px; }
+        h3 i { margin-right: 8px; }
+        p { color: var(--text-muted); font-size: 0.9em; line-height: 1.5; margin-bottom: 16px; }
+
+        input[type="text"], input[type="number"], select {
+            width: 100%; padding: 12px 16px; border-radius: 8px;
+            border: 1px solid #3f3f46; background: rgba(0,0,0,0.3); color: white;
+            font-family: 'Inter', sans-serif; transition: border-color 0.2s;
+        }
+        input:focus, select:focus { outline: none; border-color: var(--accent-primary); }
+
+        .btn {
+            padding: 10px 20px; border-radius: 8px; font-weight: 600; border: none;
+            cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px;
+            font-family: 'Inter', sans-serif; text-decoration: none; justify-content: center;
+        }
+        .btn-primary { background: linear-gradient(135deg, var(--accent-primary), var(--accent-hover)); color: white; }
+        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-danger { background: rgba(239, 68, 68, 0.1); color: var(--danger); border: 1px solid var(--danger); }
+        .btn-danger:hover { background: var(--danger); color: white; }
+        .btn-success { background: rgba(16, 185, 129, 0.1); color: var(--success); border: 1px solid var(--success); }
+        .btn-success:hover { background: var(--success); color: white; }
+
+        /* Toggles (Switches) */
+        .toggle-switch {
+            position: relative; display: inline-block; width: 44px; height: 24px;
+        }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #3f3f46; transition: .3s; border-radius: 24px;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px;
+            background-color: white; transition: .3s; border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--success); }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        /* Layout: Login Page */
+        .login-wrapper {
+            display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; text-align: center;
+        }
+        .login-wrapper h1 { font-size: 3.5em; font-weight: 700; background: linear-gradient(to right, #fff, #a1a1aa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
+
+        /* Layout: SPA Dashboard */
+        .app-container { display: flex; height: 100vh; overflow: hidden; }
+        
+        /* Sidebar */
+        .sidebar {
+            width: 260px; background: rgba(9, 9, 11, 0.8); backdrop-filter: blur(20px);
+            border-right: 1px solid var(--border-glass); display: flex; flex-direction: column;
+            padding: 24px 0; z-index: 10;
+        }
+        .sidebar-brand { padding: 0 24px; margin-bottom: 40px; font-size: 1.5em; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+        .sidebar-brand i { color: var(--accent-primary); }
+        
+        .nav-menu { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 0 12px; }
+        .nav-item {
+            padding: 12px 16px; border-radius: 8px; color: var(--text-muted); cursor: pointer;
+            transition: all 0.2s; display: flex; align-items: center; gap: 12px; font-weight: 500;
+        }
+        .nav-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
+        .nav-item.active { background: rgba(168, 85, 247, 0.15); color: var(--accent-primary); border-right: 3px solid var(--accent-primary); }
+        
+        .sidebar-footer { margin-top: auto; padding: 24px; border-top: 1px solid var(--border-glass); }
+        .user-profile { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--info), var(--accent-primary)); display: flex; align-items: center; justify-content: center; font-weight: bold; }
+
+        /* Main Content Area */
+        .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+        
+        .top-header {
+            height: 70px; border-bottom: 1px solid var(--border-glass); background: rgba(9, 9, 11, 0.6);
+            backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: space-between;
+            padding: 0 32px; z-index: 5;
+        }
+        
+        .workspace { flex: 1; overflow-y: auto; padding: 32px; }
+        
+        /* Tab Logic */
+        .tab-content { display: none; animation: fadeIn 0.3s ease-in-out; }
+        .tab-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Specific Modules */
+        .status-pulse {
+            width: 10px; height: 10px; border-radius: 50%; background: var(--success);
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); animation: pulse 2s infinite; margin-right: 8px; display: inline-block;
+        }
+        @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
+
+        .chat-terminal {
+            background: #000; border: 1px solid #333; border-radius: 8px; height: 350px;
+            overflow-y: auto; padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 0.9em;
+        }
+        .chat-msg { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .chat-time { color: #52525b; font-size: 0.85em; margin-right: 8px; }
+        .chat-badge { background: var(--info); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: bold; margin-right: 8px; }
+        .chat-user { color: var(--accent-primary); font-weight: bold; }
+        .chat-text { color: #d4d4d8; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th { text-align: left; padding: 12px; color: var(--text-muted); font-weight: 500; border-bottom: 1px solid var(--border-glass); }
+        td { padding: 12px; border-bottom: 1px solid var(--border-glass); }
+        tr:hover td { background: rgba(255,255,255,0.02); }
+
+        .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.05); }
+        
+        /* Grid Layouts */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+
+        .stat-card { text-align: center; padding: 20px; background: rgba(0,0,0,0.3); border-radius: 12px; border: 1px solid var(--border-glass); }
+        .stat-val { font-size: 2em; font-weight: 700; color: var(--text-main); margin-top: 8px; }
+        .stat-label { color: var(--text-muted); font-size: 0.85em; text-transform: uppercase; letter-spacing: 1px; }
+
+        .alert-box { padding: 16px; border-radius: 8px; margin-bottom: 24px; font-weight: 500; display: flex; align-items: center; gap: 12px; }
+        .alert-success { background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); color: var(--success); }
+        .alert-error { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); color: var(--danger); }
+        .alert-warning { background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning); color: var(--warning); }
     </style>
 </head>
 <body>
-    <div class="container">
-        {% if not streamer_name %}
-        <!-- LOGGED OUT VIEW -->
-        <div class="header" style="margin-top: 10vh;">
-            <h1>👑 Goddess AI</h1>
-            <p style="color: #9ca3af; max-width: 500px; margin: 0 auto 30px auto; line-height: 1.6;">
-                The ultimate multi-dialect chat moderator and loyalty engine for professional live broadcasters.
-            </p>
-            <a href="/login" class="login-btn">Log in with YouTube</a>
 
-            <!-- GUEST MODE SUMMONER -->
-            <div style="margin-top: 40px; padding: 25px; background: #1e1e24; border-radius: 12px; border: 1px dashed #444; max-width: 500px; margin-left: auto; margin-right: auto;">
-                <h3 style="margin-top: 0; font-size: 1.2em; color: #e5e7eb; text-align: left;">Try Guest Mode</h3>
-                <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 20px; text-align: left; line-height: 1.5;">Paste your active Live Stream URL to summon the bot instantly. (Advanced AI, economy, and database features are disabled in Guest Mode).</p>
+    {% if not streamer_name %}
+    <!-- LOGGED OUT VIEW -->
+    <div class="login-wrapper">
+        <div class="glass-panel" style="max-width: 500px; width: 100%; padding: 40px;">
+            <i class="fa-solid fa-crown" style="font-size: 3em; color: var(--accent-primary); margin-bottom: 20px;"></i>
+            <h1>Goddess AI</h1>
+            <p style="font-size: 1.1em; margin-bottom: 32px;">The premium multi-dialect chat moderator and loyalty engine for professional broadcasters.</p>
+            <a href="/login" class="btn btn-primary" style="width: 100%; font-size: 1.2em; padding: 16px;"><i class="fa-brands fa-youtube"></i> Authenticate with YouTube</a>
+            
+            <div style="margin-top: 40px; border-top: 1px solid var(--border-glass); padding-top: 24px; text-align: left;">
+                <h4 style="margin-bottom: 8px; color: var(--text-muted);">Guest Mode Summoner</h4>
                 <form action="/guest-join" method="POST" style="display: flex; gap: 10px;">
-                    <input type="text" name="stream_url" placeholder="https://youtube.com/watch?v=..." style="flex: 1; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
-                    <button type="submit" style="background: #3b82f6; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">Summon Bot</button>
+                    <input type="text" name="stream_url" placeholder="https://youtube.com/watch?v=..." required>
+                    <button type="submit" class="btn" style="background: var(--info); color: white;"><i class="fa-solid fa-bolt"></i> Deploy</button>
                 </form>
                 {% if request.query_params.get('guest') == 'true' %}
-                    <div style="background: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; padding: 12px; border-radius: 8px; color: #4ade80; margin-top: 15px; text-align: left; font-weight: bold;">
-                        ✅ Bot summoned! It should appear in your chat momentarily.
-                    </div>
+                    <div class="alert-box alert-success" style="margin-top: 16px; padding: 12px;"><i class="fa-solid fa-check-circle"></i> Bot summoned to chat.</div>
                 {% endif %}
             </div>
         </div>
+    </div>
+    
+    {% else %}
+    <!-- LOGGED IN SPA VIEW -->
+    <div class="app-container">
         
-        {% else %}
-        <!-- LOGGED IN VIEW -->
-        <div style="margin-bottom: 30px; border-bottom: 1px solid #333; padding-bottom: 20px;">
-            <a href="/logout" class="btn-logout">Logout</a>
-            <h2 style="margin: 0;">Welcome, {{ streamer_name }}!</h2>
-            <p style="color: #9ca3af; margin-top: 5px;">Your dashboard is active and synced.</p>
-        </div>
-
-        <!-- NEW: LIVE CHAT READER (0 API COST) -->
-        <div class="panel" style="border-top: 4px solid #ef4444;">
-            <h3 style="color: #ef4444;">💬 Unified Live Chat Reader</h3>
-            <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Reads directly from your local database. Zero API quota consumed. Streams from multiple channels will display here with a channel badge.</p>
-            <div id="chat-container" style="background: #0a0a0c; border: 1px solid #333; border-radius: 8px; height: 350px; overflow-y: auto; padding: 15px; font-family: monospace; display: flex; flex-direction: column; gap: 8px;">
-                <div style="color: #71717a; text-align: center; font-style: italic;">Connecting to local database... waiting for messages...</div>
+        <!-- SIDEBAR NAVIGATION -->
+        <aside class="sidebar">
+            <div class="sidebar-brand"><i class="fa-solid fa-crown"></i> Goddess AI</div>
+            <ul class="nav-menu">
+                <li class="nav-item active" onclick="switchTab('tab-overview')"><i class="fa-solid fa-chart-pie" style="width: 20px;"></i> Overview</li>
+                <li class="nav-item" onclick="switchTab('tab-moderation')"><i class="fa-solid fa-shield-halved" style="width: 20px;"></i> AI Moderation</li>
+                <li class="nav-item" onclick="switchTab('tab-economy')"><i class="fa-solid fa-store" style="width: 20px;"></i> Creator Economy</li>
+                <li class="nav-item" onclick="switchTab('tab-widgets')"><i class="fa-solid fa-layer-group" style="width: 20px;"></i> Overlays & Settings</li>
+            </ul>
+            
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="avatar">{{ streamer_name[0] }}</div>
+                    <div>
+                        <div style="font-weight: 600; color: white;">{{ streamer_name }}</div>
+                        <div style="font-size: 0.8em; color: var(--success);"><span class="status-pulse"></span>System Online</div>
+                    </div>
+                </div>
+                <a href="/logout" class="btn btn-danger" style="width: 100%; font-size: 0.9em;"><i class="fa-solid fa-right-from-bracket"></i> Sign Out</a>
             </div>
-        </div>
+        </aside>
 
-        <!-- INSTANT BOT DEPLOYMENT -->
-        <div class="panel" style="border-top: 4px solid #3b82f6;">
-            <h3 style="color: #3b82f6;">🔗 Instant Bot Deployment</h3>
-            <p style="color: #9ca3af; margin-bottom: 15px; font-size: 0.9em;">Paste your YouTube stream link here to force the bot into your chat instantly.</p>
-            <form action="/api/deploy-bot" method="POST" style="display: flex; gap: 10px;">
-                <input type="text" name="stream_url" style="flex: 1; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" placeholder="Paste your YouTube Live URL here..." required>
-                <button type="submit" style="background: #3b82f6; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">Deploy Bot</button>
-            </form>
-        </div>
-
-        <!-- ACTIVE STREAM CONNECTIONS & DISCONNECT CONTROL -->
-        <div class="panel" style="border-top: 4px solid #ef4444;">
-            <h3 style="color: #ef4444;">🔴 Active Bot Sessions</h3>
-            <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">
-                Disconnecting the bot stops all chat polling immediately and drops YouTube API usage to <strong>0%</strong>.
-            </p>
-
-            {% if active_videos %}
-                <div style="display: flex; flex-direction: column; gap: 10px;">
-                    {% for vid in active_videos %}
-                    <div style="background: #18181b; border: 1px solid #27272a; padding: 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <span style="color: #4ade80; font-weight: bold; font-size: 0.9em;">🟢 BOT IS LIVE & MONITORING</span>
-                            <div style="color: #e5e7eb; font-family: monospace; font-size: 1.1em; margin-top: 4px;">Video ID: {{ vid }}</div>
-                        </div>
-                        <form action="/api/disconnect-bot" method="POST" style="margin: 0;">
-                            <input type="hidden" name="video_id" value="{{ vid }}">
-                            <button type="submit" style="background: #ef4444; color: white; padding: 10px 18px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
-                                🛑 Disconnect & Stop API
-                            </button>
-                        </form>
-                    </div>
-                    {% endfor %}
+        <!-- MAIN WORKSPACE -->
+        <main class="main-content">
+            <!-- TOP HEADER -->
+            <header class="top-header">
+                <div style="display: flex; align-items: center; gap: 16px; flex: 1;">
+                    <i class="fa-solid fa-magnifying-glass" style="color: var(--text-muted);"></i>
+                    <input type="text" placeholder="Search viewer profiles, commands..." style="max-width: 400px; background: transparent; border: none; padding: 0;">
                 </div>
-            {% else %}
-                <div style="background: #18181b; border: 1px dashed #333; padding: 20px; border-radius: 8px; text-align: center; color: #71717a;">
-                    💤 <strong>Bot is in Standby Mode (0 API Usage).</strong><br>
-                    It will automatically wake up when WebSub detects a live stream, or when you manually deploy a link above.
+                <div style="display: flex; gap: 12px;">
+                    <form action="/api/deploy-bot" method="POST" style="display: flex; gap: 8px;">
+                        <input type="text" name="stream_url" placeholder="Paste YouTube Live URL..." style="width: 250px;" required>
+                        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-robot"></i> Force Deploy</button>
+                    </form>
                 </div>
-            {% endif %}
+            </header>
 
-            {% if request.query_params.get('success') == 'disconnected' %}
-                <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; padding: 12px; border-radius: 8px; color: #fca5a5; margin-top: 15px; font-weight: bold;">
-                    🛑 Bot disconnected successfully. API usage returned to 0%.
-                </div>
-            {% endif %}
-        </div>
+            <div class="workspace">
+                
+                <!-- ALERTS SYSTEM (Global) -->
+                {% if request.query_params.get('success') == 'disconnected' %}
+                    <div class="alert-box alert-success"><i class="fa-solid fa-check"></i> Connection severed. YouTube API usage returned to 0%.</div>
+                {% elif request.query_params.get('success') == 'bot_deployed' %}
+                    <div class="alert-box alert-success"><i class="fa-solid fa-check"></i> Protocol Successful: Target acquired and Bot deployed!</div>
+                {% elif request.query_params.get('error') == 'not_live' %}
+                    <div class="alert-box alert-warning"><i class="fa-solid fa-triangle-exclamation"></i> Scan Complete: You are not currently live on YouTube.</div>
+                {% elif request.query_params.get('error') == 'api_crash' %}
+                    <div class="alert-box alert-error"><i class="fa-solid fa-circle-exclamation"></i> API Error: Google rejected the request. Check config.</div>
+                {% endif %}
 
-        <!-- NEW: ACCOUNT LINKING & SYNC PANEL -->
-        <div class="panel" style="border-top: 4px solid #3b82f6;">
-            <h3 style="color: #3b82f6;">🔗 Multi-Channel Account Sync</h3>
-            <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">
-                Connect two YouTube accounts to share custom commands, economy balances, VIP lists, and bot settings across both streams.
-            </p>
-
-            {% if settings.linked_primary_id %}
-                <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f6; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <span style="color: #60a5fa; font-weight: bold; font-size: 1.2em;">✅ Account Synced!</span>
-                            <p style="color: #9ca3af; font-size: 0.85em; margin: 5px 0 10px 0;">This channel is attached to Primary Streamer ID #{{ settings.linked_primary_id }}.</p>
-                        </div>
-                        <form action="/api/account/unlink" method="POST" style="margin: 0;">
-                            <button type="submit" style="background: #ef4444; color: white; padding: 8px 15px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">Unlink</button>
-                        </form>
-                    </div>
-                    
-                    <div style="border-top: 1px dashed #444; margin-top: 15px; padding-top: 15px;">
-                        <span style="color: white; font-weight: bold; display: block; margin-bottom: 5px;">Data Sync Setting</span>
-                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                            <span style="color: #9ca3af; font-size: 0.85em;">Share economy, viewers, and commands with Primary Account?</span>
-                            <form action="/toggle-setting" method="POST" style="margin: 0;">
-                                <input type="hidden" name="setting" value="sync_settings">
-                                <button type="submit" style="background: {{ '#22c55e' if settings.sync_settings else '#ef4444' }}; color: white; padding: 8px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
-                                    {{ 'Syncing Data' if settings.sync_settings else 'Independent Data' }}
-                                </button>
+                <!-- ========================================== -->
+                <!-- TAB 1: OVERVIEW & TERMINAL                 -->
+                <!-- ========================================== -->
+                <div id="tab-overview" class="tab-content active">
+                    <div class="glass-panel" style="border-left: 4px solid var(--accent-primary);">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <h2>Active Bot Sessions</h2>
+                                <p style="margin: 0;">Disconnecting immediately drops YouTube API usage to 0%.</p>
+                            </div>
+                            <form action="/api/panic-button" method="POST" style="margin: 0;">
+                                <button type="submit" class="btn btn-danger" style="box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);"><i class="fa-solid fa-tower-broadcast"></i> Panic Connect</button>
                             </form>
                         </div>
+                        
+                        <div style="margin-top: 20px;">
+                            {% if active_videos %}
+                                {% for vid in active_videos %}
+                                <div class="setting-row" style="background: rgba(16, 185, 129, 0.05); border-color: rgba(16, 185, 129, 0.2);">
+                                    <div>
+                                        <div style="color: var(--success); font-weight: bold; font-size: 0.9em; margin-bottom: 4px;"><span class="status-pulse"></span>MONITORING LIVE</div>
+                                        <div style="font-family: monospace; color: #fff;">Video ID: {{ vid }}</div>
+                                    </div>
+                                    <form action="/api/disconnect-bot" method="POST" style="margin: 0;">
+                                        <input type="hidden" name="video_id" value="{{ vid }}">
+                                        <button type="submit" class="btn btn-danger"><i class="fa-solid fa-stop"></i> Disconnect</button>
+                                    </form>
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                                <div style="text-align: center; padding: 30px; background: rgba(0,0,0,0.3); border-radius: 8px; color: var(--text-muted); border: 1px dashed #333;">
+                                    <i class="fa-solid fa-moon" style="font-size: 2em; margin-bottom: 10px; display: block;"></i>
+                                    Bot is in Standby Mode (0 API Usage). It will auto-wake on WebSub ping.
+                                </div>
+                            {% endif %}
+                        </div>
                     </div>
-                </div>
-            {% else %}
-                <form action="/api/account/link" method="POST" style="display: flex; gap: 10px;">
-                    <input type="text" name="target_sync_code" placeholder="Enter Primary Account Sync Code (e.g. ABC123XYZ)" style="flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
-                    <button type="submit" style="background: #3b82f6; color: white; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
-                        Link Profile
-                    </button>
-                </form>
-                {% if request.query_params.get('error') == 'invalid_sync_code' %}
-                    <p style="color: #ef4444; font-size: 0.85em; margin-top: 10px;">❌ Invalid Sync Code.</p>
-                {% endif %}
-            {% endif %}
-        </div>
 
-        <!-- 🚨 PANIC BUTTON PROTOCOL 🚨 -->
-        <div style="margin-bottom: 30px; background: rgba(239, 68, 68, 0.1); border: 1px dashed #ef4444; padding: 20px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between;">
-            <div>
-                <h4 style="margin: 0 0 5px 0; color: #ef4444; font-size: 1.1em;">🚨 Panic Button Protocol</h4>
-                <p style="margin: 0; color: #fca5a5; font-size: 0.9em; max-width: 450px;">Did the Discord webhook fail? Click this button to forcefully scan your channel and instantly deploy the bot into your active live stream.</p>
-            </div>
-            <form action="/api/panic-button" method="POST">
-                <button type="submit" style="background: #ef4444; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em; box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);">
-                    Deploy Bot Now
-                </button>
-            </form>
-        </div>
-
-        <!-- System Alerts for Panic Button -->
-        {% if request.query_params.get('success') == 'bot_deployed' %}
-            <div style="background: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; padding: 15px; border-radius: 8px; color: #4ade80; margin-bottom: 25px; font-weight: bold;">
-                ✅ Protocol Successful: Target acquired and Bot deployed to your live chat!
-            </div>
-        {% elif request.query_params.get('error') == 'not_live' %}
-            <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid #f59e0b; padding: 15px; border-radius: 8px; color: #f59e0b; margin-bottom: 25px; font-weight: bold;">
-                ⚠️ Scan Complete: We checked your channel, but you are not currently live on YouTube.
-            </div>
-        {% elif request.query_params.get('error') == 'api_crash' or request.query_params.get('error') == 'missing_api_key' %}
-            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; padding: 15px; border-radius: 8px; color: #ef4444; margin-bottom: 25px; font-weight: bold;">
-                ❌ API Error: The YouTube Data API failed to process the request. Check your quota and API Key in the server config.
-            </div>
-        {% endif %}
-
-        <!-- INTELLIGENT AI MODERATION CENTER -->
-        <div class="panel" style="border-left: 4px solid #10b981;">
-            <h3 style="color: #10b981;">🤖 Intelligent AI Moderation Center</h3>
-            <p style="color: #9ca3af; font-size: 0.9em;">
-                Powered by a triple-layer optimization matrix. <strong>98%+ of chat logs are validated locally</strong> via the Rule Engine to save API overhead.
-            </p>
-            
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-top: 20px; margin-bottom: 20px;">
-                <div style="background: #18181b; padding: 15px; border-radius: 8px; border: 1px solid #27272a; text-align: center;">
-                    <div style="font-size: 0.8em; color: #71717a; text-transform: uppercase;">Local Bypass Rate</div>
-                    <div style="font-size: 1.8em; font-weight: bold; color: #10b981; margin-top: 5px;">98.6%</div>
-                </div>
-                <div style="background: #18181b; padding: 15px; border-radius: 8px; border: 1px solid #27272a; text-align: center;">
-                    <div style="font-size: 0.8em; color: #71717a; text-transform: uppercase;">Structural Cache Hits</div>
-                    <div style="font-size: 1.8em; font-weight: bold; color: #3b82f6; margin-top: 5px;">412 ms</div>
-                </div>
-                <div style="background: #18181b; padding: 15px; border-radius: 8px; border: 1px solid #27272a; text-align: center;">
-                    <div style="font-size: 0.8em; color: #71717a; text-transform: uppercase;">Gemini Computations</div>
-                    <div style="font-size: 1.8em; font-weight: bold; color: #a855f7; margin-top: 5px;">14 Reqs</div>
-                </div>
-            </div>
-            
-            <!-- Active Stream Quality Graph Placeholder -->
-            <div style="background: #111; padding: 15px; border-radius: 8px; border: 1px solid #333; margin-bottom: 20px;">
-                <h4 style="margin: 0 0 10px 0; font-size: 0.9em; color: #e5e7eb;">📊 Live Community Mood Analytics (Updated every 60s)</h4>
-                <div style="display: flex; height: 20px; border-radius: 10px; overflow: hidden; background: #222;">
-                    <div style="width: 70%; background: #10b981;" title="Positive Sentiment"></div>
-                    <div style="width: 20%; background: #f59e0b;" title="Neutral Chatter"></div>
-                    <div style="width: 10%; background: #ef4444;" title="Flagged Toxicity"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: #9ca3af; margin-top: 8px;">
-                    <span>🟢 Positive: 70%</span>
-                    <span>🟡 Neutral: 20%</span>
-                    <span>🔴 Toxic: 10%</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- MODERATION BOT DEPLOYMENT -->
-        <div class="panel" style="border-top: 4px solid #10b981;">
-            <h3 style="color: #10b981;">🛡️ Join Channel (Bot Moderation)</h3>
-            <p style="color: #9ca3af; margin-bottom: 15px;">Click the button below to instantly deploy Goddess AI to your active YouTube live stream. It will join as a normal participant.</p>
-
-            <form action="/api/bot/join" method="POST" style="margin-bottom: 15px;">
-                <button type="submit" style="background: #10b981; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%;">
-                    ✅ Join Channel
-                </button>
-            </form>
-        </div>
-
-        <!-- 1v1 QUEUE MANAGER -->
-        <div class="panel" style="border-top: 4px solid #0ea5e9;">
-            <h3 style="color: #0ea5e9;">⚔️ Live 1v1 Arena Queue</h3>
-            <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Users enter the queue by typing <code>!join</code> in chat. AFK users are automatically removed after 10 minutes of silence.</p>
-            
-            <div style="background: #18181b; border-radius: 8px; border: 1px solid #27272a; padding: 15px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px;">
-                    <span style="color: #e5e7eb; font-weight: bold;">Current Waiting List</span>
-                    <span style="color: #0ea5e9; font-size: 0.9em;">Mods use <code>!next</code> to pull players</span>
-                </div>
-                
-                <div id="queue-list" style="color: #9ca3af; font-family: monospace; font-size: 1.1em; line-height: 1.8;">
-                    <span style="color: #3b82f6;">#1</span> @RahulGamer99<br>
-                    <span style="color: #6b7280;">#2</span> @BGMI_King<br>
-                    <span style="color: #6b7280;">#3</span> @SniperElite_TV
-                </div>
-            </div>
-        </div>
-
-        <!-- CUSTOM COMMANDS -->
-        <div class="panel" style="border-top: 4px solid #a855f7;">
-            <h3 style="color: #a855f7;">⚡ Custom Chat Commands</h3>
-            <p style="color: #9ca3af; margin-bottom: 15px;">Create text triggers that the AI bot will automatically reply to in YouTube chat.</p>
-            
-            <!-- Add Command Form -->
-            <form action="/api/commands/add" method="POST" style="display: flex; gap: 10px; margin-bottom: 20px;">
-                <input type="text" name="command_trigger" placeholder="!discord" style="flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
-                <input type="text" name="response_text" placeholder="Join our Discord here: discord.gg/..." style="flex: 3; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
-                <button type="submit" style="background: #a855f7; color: white; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
-                    + Add Command
-                </button>
-            </form>
-
-            <!-- Command List Table -->
-            <table style="width: 100%; text-align: left; border-collapse: collapse; background: #18181b; border-radius: 8px; overflow: hidden;">
-                <tr style="border-bottom: 1px solid #333; background: #27272a;">
-                    <th style="padding: 12px; color: #e5e7eb;">Trigger</th>
-                    <th style="padding: 12px; color: #e5e7eb;">Bot Response</th>
-                    <th style="padding: 12px; text-align: right; color: #e5e7eb;">Action</th>
-                </tr>
-                
-                {% if commands %}
-                    {% for cmd in commands %}
-                    <tr style="border-bottom: 1px solid #27272a;">
-                        <td style="padding: 12px; color: #a855f7; font-weight: bold; font-family: monospace;">{{ cmd.command_trigger }}</td>
-                        <td style="padding: 12px; color: #d1d5db;">{{ cmd.response_text }}</td>
-                        <td style="padding: 12px; text-align: right;">
-                            <form action="/api/commands/delete" method="POST" style="display:inline;">
-                                <input type="hidden" name="command_id" value="{{ cmd.id }}">
-                                <button type="submit" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Delete</button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                {% else %}
-                    <tr><td colspan="3" style="padding: 20px; text-align: center; color: #71717a; font-style: italic;">No custom commands created yet.</td></tr>
-                {% endif %}
-            </table>
-        </div>
-
-        <!-- VIP ENTRANCE GREETER -->
-        <div class="panel" style="border-top: 4px solid #f43f5e;">
-            <h3 style="color: #f43f5e;">🌟 VIP Entrance Greeter</h3>
-            <p style="color: #9ca3af; margin-bottom: 15px;">Set custom automated bot replies for when specific users send their first message in your chat.</p>
-            
-            <form action="/api/vip/add" method="POST" style="display: flex; gap: 10px; margin-bottom: 20px;">
-                <input type="text" name="target_username" placeholder="@YouTubeHandle" style="flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
-                <input type="text" name="custom_reply" placeholder="Welcome back to the stream, VIP!" style="flex: 3; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
-                <button type="submit" style="background: #f43f5e; color: white; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
-                    + Add VIP
-                </button>
-            </form>
-
-            <table style="width: 100%; text-align: left; border-collapse: collapse; background: #18181b; border-radius: 8px; overflow: hidden;">
-                <tr style="border-bottom: 1px solid #333; background: #27272a;">
-                    <th style="padding: 12px; color: #e5e7eb;">Target User</th>
-                    <th style="padding: 12px; color: #e5e7eb;">Automated Reply</th>
-                    <th style="padding: 12px; text-align: right; color: #e5e7eb;">Action</th>
-                </tr>
-                
-                {% if vips %}
-                    {% for vip in vips %}
-                    <tr style="border-bottom: 1px solid #27272a;">
-                        <td style="padding: 12px; color: #f43f5e; font-weight: bold; font-family: monospace;">{{ vip.target_username }}</td>
-                        <td style="padding: 12px; color: #d1d5db;">{{ vip.custom_reply }}</td>
-                        <td style="padding: 12px; text-align: right;">
-                            <form action="/api/vip/delete" method="POST" style="display:inline;">
-                                <input type="hidden" name="vip_id" value="{{ vip.id }}">
-                                <button type="submit" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Remove</button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                {% else %}
-                    <tr><td colspan="3" style="padding: 20px; text-align: center; color: #71717a; font-style: italic;">No VIP greetings configured.</td></tr>
-                {% endif %}
-            </table>
-        </div>
-
-        <!-- CREATOR ECONOMY & STORE -->
-        <div class="panel" style="border-top: 4px solid #f59e0b;">
-            <h3 style="color: #f59e0b;">🛍️ Creator Economy & Store</h3>
-            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-                <div style="flex: 1; background: #2a2a32; padding: 15px; border-radius: 8px;">
-                    <h4 style="margin-top: 0; color: white;">Manage Store Items</h4>
-                    <p style="font-size: 0.8em; color: #9ca3af;">Add digital, physical, or gaming rewards.</p>
-                    <button class="btn-submit" style="background: #3b82f6;">+ Create Reward</button>
-                </div>
-                <div style="flex: 1; background: #2a2a32; padding: 15px; border-radius: 8px;">
-                    <h4 style="margin-top: 0; color: white;">Economy Settings</h4>
-                    <div style="display: flex; flex-direction: column; gap: 10px;">
-                        <input type="text" placeholder="Currency Name (e.g., Shinobi Coins)" style="padding: 8px; border-radius: 6px; border: 1px solid #444; background: #111; color: white;">
-                        <input type="number" placeholder="XP Multiplier" style="padding: 8px; border-radius: 6px; border: 1px solid #444; background: #111; color: white;">
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- STREAM MEMORY -->
-        <div class="panel" style="border-top: 4px solid #10b981;">
-            <h3 style="color: #10b981;">🧠 Stream Memory & Profiles</h3>
-            <p style="color: #9ca3af; margin-bottom: 15px;">Search long-term viewer profiles, streaks, and achievements.</p>
-            <input type="text" placeholder="Search viewer username..." style="width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #111; color: white; margin-bottom: 10px;">
-            
-            <div style="background: #18181b; padding: 15px; border-radius: 8px; border: 1px solid #27272a; display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <strong style="color: white; font-size: 1.1em;">RahulGamer99</strong>
-                    <div style="font-size: 0.8em; color: #71717a; margin-top: 5px;">🔥 17 Day Streak | 🪙 12,340 Coins | Level 42</div>
-                    <div style="font-size: 0.8em; color: #a855f7; margin-top: 5px;">🏆 OG Viewer, First Message, Night Owl</div>
-                </div>
-                <button style="background: #4b5563; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;">View Full Profile</button>
-            </div>
-        </div>
-
-        <!-- RE-ADDED: LOCAL CLIPPER & PRO PLAN -->
-        <div class="panel" style="border-top: 4px solid #3b82f6;">
-            <h3 style="color: #3b82f6;">🎬 Local Stream Clipper & Subscriptions</h3>
-            <p style="color: #9ca3af; margin-bottom: 15px;">Generate offline clips instantly. Unlock higher bitrates with PRO.</p>
-            
-            <div style="display: flex; gap: 15px; margin-bottom: 20px;">
-                <button class="btn-submit" style="background: #ef4444;">🔴 Generate 60s Clip Now</button>
-                <button class="btn-submit" style="background: #22c55e;">⚙️ Configure OBS Hotkey</button>
-            </div>
-
-            <!-- RECENT CLIPS VIDEO GALLERY -->
-            <div style="margin-bottom: 25px;">
-                <h4 style="margin-top: 0; color: #e5e7eb; border-bottom: 1px solid #333; padding-bottom: 8px;">🎞️ Recent Clips</h4>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-top: 15px;">
-                    
-                    {% if clips %}
-                        {% for clip in clips %}
-                        <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; overflow: hidden;">
-                            <video width="100%" controls style="display: block; background: #000;">
-                                <source src="{{ clip.file_path }}" type="video/mp4">
-                            </video>
-                            <div style="padding: 12px;">
-                                <strong style="color: white; font-size: 0.95em;">{{ clip.title }}</strong>
-                                <div style="font-size: 0.8em; color: #71717a; margin-top: 4px;">Triggered by: {{ clip.trigger_source }}</div>
-                                <div style="font-size: 0.75em; color: #3b82f6; margin-top: 4px;">{{ clip.duration_seconds }}s • {{ clip.resolution }}</div>
+                    <div class="grid-2">
+                        <div class="glass-panel">
+                            <h3><i class="fa-solid fa-terminal" style="color: var(--info);"></i> Unified Live Chat</h3>
+                            <p>Reads from local DB. Zero API quota consumed.</p>
+                            <div id="chat-container" class="chat-terminal">
+                                <div style="color: #52525b; text-align: center; font-style: italic; margin-top: 20px;">Establishing secure local connection...</div>
                             </div>
                         </div>
-                        {% endfor %}
-                    {% else %}
-                        <div style="background: #18181b; border: 1px dashed #444; border-radius: 8px; padding: 20px; text-align: center; color: #71717a; grid-column: 1 / -1;">
-                            No clips generated yet. Type <strong>!clip</strong> in chat to create one!
+
+                        <div>
+                            <div class="grid-2" style="margin-bottom: 24px;">
+                                <div class="stat-card">
+                                    <div class="stat-label">Total Unique Viewers</div>
+                                    <div class="stat-val" style="color: var(--info);">{{ viewers|length }}</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-label">Custom Commands</div>
+                                    <div class="stat-val" style="color: var(--accent-primary);">{{ commands|length }}</div>
+                                </div>
+                            </div>
+
+                            <div class="glass-panel">
+                                <h3><i class="fa-solid fa-trophy" style="color: var(--warning);"></i> Top Viewers (Current DB)</h3>
+                                {% if viewers %}
+                                <table>
+                                    <tr><th>User</th><th>Level</th><th style="text-align: right;">XP</th></tr>
+                                    {% for viewer in viewers[:5] %}
+                                    <tr>
+                                        <td style="font-weight: 500; color: #fff;">{{ viewer.username }}</td>
+                                        <td><span style="background: #3f3f46; padding: 2px 8px; border-radius: 12px; font-size: 0.85em;">Lvl {{ viewer.level }}</span></td>
+                                        <td style="text-align: right; color: var(--accent-primary); font-family: monospace;">{{ viewer.current_xp }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </table>
+                                {% else %}
+                                <p style="text-align: center; padding: 20px; font-style: italic;">No viewers logged yet.</p>
+                                {% endif %}
+                            </div>
                         </div>
-                    {% endif %}
-                </div>
-            </div>
-            
-            <!-- PRO Upgrade Banner -->
-            <div style="background: linear-gradient(45deg, #1e1e24, #2d203a); border: 1px solid #a855f7; padding: 20px; border-radius: 8px;">
-                <h4 style="margin: 0 0 10px 0; color: #eab308;">⭐ Upgrade to PRO (₹50/month)</h4>
-                <ul style="color: #d1d5db; font-size: 0.9em; padding-left: 20px;">
-                    <li>Highest Available Clip Quality (Unlimited Local Storage Integration)</li>
-                    <li>Unlimited Store Items & Infinite Custom Achievements</li>
-                    <li>Priority Background Worker Processing</li>
-                </ul>
-                <button style="background: #eab308; color: #000; padding: 10px 20px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 10px;">
-                    Subscribe via Razorpay
-                </button>
-            </div>
-        </div>
-
-        <!-- WIDGET THEME GALLERY -->
-        <div class="panel">
-            <h3>🎨 Widget Theme Gallery</h3>
-            <p style="color: #9ca3af; margin-bottom: 20px;">Customize how your alerts look on stream.</p>
-            
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px;">
-                <form action="/select-theme" method="POST" style="background: #2a2a32; border: 2px solid #a855f7; border-radius: 8px; padding: 15px; text-align: center;">
-                    <input type="hidden" name="theme_name" value="neon">
-                    <h4 style="margin: 0 0 10px 0; color: white;">🟣 Neon Glow</h4>
-                    <button type="submit" style="background: #a855f7; color: white; padding: 8px 15px; border: none; border-radius: 6px; cursor: pointer; width: 100%;">Select (Free)</button>
-                </form>
-
-                <form action="/select-theme" method="POST" style="background: #2a2a32; border: 2px solid #333; border-radius: 8px; padding: 15px; text-align: center;">
-                    <input type="hidden" name="theme_name" value="cyberpunk">
-                    <h4 style="margin: 0 0 10px 0; color: #eab308;">🟡 Cyberpunk</h4>
-                    <button type="submit" style="background: #333; color: white; padding: 8px 15px; border: none; border-radius: 6px; cursor: pointer; width: 100%;">Select (Free)</button>
-                </form>
-                
-                <form action="/select-theme" method="POST" style="background: #2a2a32; border: 2px solid #333; border-radius: 8px; padding: 15px; text-align: center;">
-                    <input type="hidden" name="theme_name" value="minimal">
-                    <h4 style="margin: 0 0 10px 0; color: white;">⚪ Minimalist</h4>
-                    <button type="submit" style="background: #333; color: white; padding: 8px 15px; border: none; border-radius: 6px; cursor: pointer; width: 100%;">Select (Free)</button>
-                </form>
-            </div>
-
-            <!-- RE-ADDED: PRO Custom Upload & Visual Builder -->
-            <div style="border-top: 1px dashed #444; padding-top: 20px;">
-                <h4 style="margin: 0 0 10px 0; color: #fbbf24;">💎 Pro: Upload Custom Widget</h4>
-                <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Write your own CSS or inject your own graphics. <strong>Requires a one-time setup fee of ₹20.</strong></p>
-                
-                {% if request.query_params.get('error') == 'payment_required_20_inr' %}
-                    <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; padding: 12px; border-radius: 8px; color: #ef4444; margin-bottom: 15px; font-weight: bold;">
-                        ❌ Payment Required: You must pay ₹20 to unlock custom widgets.
-                    </div>
-                {% endif %}
-
-                {% if request.query_params.get('custom_success') == 'dev_bypass' %}
-                    <div style="background: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; padding: 12px; border-radius: 8px; color: #4ade80; margin-bottom: 15px; font-weight: bold;">
-                        ✅ Dev Auth Confirmed. Custom widget uploaded for free!
-                    </div>
-                {% endif %}
-                
-                {% if request.query_params.get('theme_updated') == 'true' %}
-                    <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f6; padding: 12px; border-radius: 8px; color: #3b82f6; margin-bottom: 15px; font-weight: bold;">
-                        🎨 Theme updated successfully! Test it below.
-                    </div>
-                {% endif %}
-
-                <form action="/upload-custom-widget" method="POST" style="display: flex; flex-direction: column; gap: 10px;">
-                    <textarea name="custom_css" rows="4" placeholder="/* Paste your custom CSS here */" style="padding: 10px; border-radius: 6px; border: 1px solid #444; background: #111; color: #a855f7; font-family: monospace;" required></textarea>
-                    <button type="submit" style="background: #fbbf24; color: #000; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
-                        Upload & Pay ₹20
-                    </button>
-                </form>
-            </div>
-
-            <!-- RE-ADDED: Advanced Visual Builder -->
-            <div style="border-top: 1px dashed #444; padding-top: 20px; margin-top: 20px;">
-                <h4 style="margin: 0 0 10px 0; color: #fbbf24;">🛠️ Pro Layout Builder</h4>
-                <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Visually compose your alerts and goal bars. Drag, drop, and style without writing code.</p>
-                
-                <div style="display: flex; gap: 20px;">
-                    <div style="flex: 1; background: #2a2a32; padding: 15px; border-radius: 8px;">
-                        <label style="display: block; color: #fff; margin-bottom: 5px;">Entrance Animation</label>
-                        <select id="animSelect" style="width: 100%; padding: 8px; margin-bottom: 15px; background: #111; color: white; border: 1px solid #444;">
-                            <option value="popIn">Pop In (Classic)</option>
-                            <option value="elasticBounce">Elastic Bounce</option>
-                            <option value="glitch">Cyber Glitch</option>
-                            <option value="slideIn">Slide In</option>
-                        </select>
-
-                        <label style="display: block; color: #fff; margin-bottom: 5px;">Border Radius</label>
-                        <input type="range" id="borderRadius" min="0" max="50" value="16" style="width: 100%; margin-bottom: 15px;">
-
-                        <label style="display: block; color: #fff; margin-bottom: 5px;">Enable Avatar Layer</label>
-                        <input type="checkbox" id="showAvatar" checked style="margin-bottom: 15px;">
-
-                        <form action="/api/save-alert-layout" method="POST" id="builderForm">
-                            <input type="hidden" name="layout_config" id="layoutConfigPayload">
-                            <button type="button" onclick="saveLayout()" style="background: #fbbf24; color: #000; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%;">
-                                Save Configuration
-                            </button>
-                        </form>
                     </div>
                 </div>
-            </div>
-            {% if request.query_params.get('success') == 'layout_saved' %}
-                 <div style="background: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; padding: 12px; border-radius: 8px; color: #4ade80; margin-top: 15px; text-align: left; font-weight: bold;">
-                      ✅ Layout successfully saved!
-                 </div>
-            {% endif %}
-            <script>
-                function saveLayout() {
-                    const config = {
-                        animation_in: document.getElementById('animSelect').value,
-                        border_radius: document.getElementById('borderRadius').value,
-                        show_avatar: document.getElementById('showAvatar').checked
-                    };
-                    document.getElementById('layoutConfigPayload').value = JSON.stringify(config);
-                    document.getElementById('builderForm').submit();
-                }
-                document.getElementById('borderRadius').addEventListener('input', (e) => {
-                    const previewFrame = document.querySelector('iframe').contentWindow;
-                    previewFrame.postMessage({ type: 'preview_config', config: { border_radius: e.target.value } }, '*');
-                });
-                document.getElementById('animSelect').addEventListener('change', (e) => {
-                    const previewFrame = document.querySelector('iframe').contentWindow;
-                    previewFrame.postMessage({ type: 'preview_config', config: { animation_in: e.target.value } }, '*');
-                });
-                document.getElementById('showAvatar').addEventListener('change', (e) => {
-                    const previewFrame = document.querySelector('iframe').contentWindow;
-                    previewFrame.postMessage({ type: 'preview_config', config: { show_avatar: e.target.checked } }, '*');
-                });
-            </script>
-        </div>
 
-        <!-- OBS WIDGET PANEL -->
-        <div class="panel">
-            <h3>🎥 Stream Alerts & Widgets</h3>
-            <p style="color: #9ca3af; margin-bottom: 15px;">Preview your alerts in real-time, then paste the Master Browser Source into OBS.</p>
-            
-            <div style="margin-bottom: 20px;">
-                <h4 style="margin-top: 0; margin-bottom: 10px; color: #e5e7eb;">📺 Live Preview (Click 'Test Alert' below to see it!)</h4>
-                <div style="width: 100%; height: 280px; background-color: #0a0a0c; border-radius: 8px; border: 2px dashed #555; overflow: hidden; position: relative; display: flex; justify-content: center;">
-                    <div style="position: absolute; inset: 0; background-image: linear-gradient(45deg, #18181b 25%, transparent 25%, transparent 75%, #18181b 75%, #18181b), linear-gradient(45deg, #18181b 25%, transparent 25%, transparent 75%, #18181b 75%, #18181b); background-size: 20px 20px; background-position: 0 0, 10px 10px; opacity: 0.7; z-index: 1;"></div>
-                    <iframe src="/overlay/{{ settings.server_sync_code }}" style="width: 100%; height: 100%; border: none; z-index: 2; position: relative;"></iframe>
-                </div>
-            </div>
+                <!-- ========================================== -->
+                <!-- TAB 2: AI MODERATION                       -->
+                <!-- ========================================== -->
+                <div id="tab-moderation" class="tab-content">
+                    <div class="glass-panel">
+                        <h3><i class="fa-solid fa-brain" style="color: var(--success);"></i> AI Control Modules</h3>
+                        <p>Toggle the core cognitive functions of Goddess AI.</p>
+                        
+                        <div class="setting-row">
+                            <div>
+                                <div style="color: #fff; font-weight: 600; font-size: 1.1em; margin-bottom: 4px;">💬 AI Chat Co-Host</div>
+                                <div style="color: var(--text-muted); font-size: 0.9em;">Bot will reply naturally when users tag it or ask questions (15s cooldown).</div>
+                            </div>
+                            <form action="/toggle-setting" method="POST" style="margin:0;">
+                                <input type="hidden" name="setting" value="ai_cohost">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" onChange="this.form.submit()" {% if settings.ai_cohost_enabled %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </form>
+                        </div>
 
-            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <input type="text" id="obsLink" readonly value="https://{{ request.headers.get('host') }}/overlay/{{ settings.server_sync_code }}" style="flex: 1; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #111; color: #a855f7; font-family: monospace; font-size: 1.1em;">
-                <button onclick="copyOBS()" style="background: #3b82f6; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">Copy</button>
-            </div>
+                        <div class="setting-row">
+                            <div>
+                                <div style="color: #fff; font-weight: 600; font-size: 1.1em; margin-bottom: 4px;">🛡️ Manual Mod Approval (Asking Mode)</div>
+                                <div style="color: var(--text-muted); font-size: 0.9em;">AI holds toxic messages and asks human mods via chat before taking action.</div>
+                            </div>
+                            <form action="/toggle-setting" method="POST" style="margin:0;">
+                                <input type="hidden" name="setting" value="manual_mod_mode">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" onChange="this.form.submit()" {% if settings.manual_mod_mode %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </form>
+                        </div>
 
-            <form action="/test-alert" method="POST" style="margin-bottom: 20px;">
-                <button type="submit" style="background: #22c55e; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%;">
-                    🔔 Send Test Alert
-                </button>
-            </form>
+                        <div class="setting-row">
+                            <div>
+                                <div style="color: #fff; font-weight: 600; font-size: 1.1em; margin-bottom: 4px;">🧠 AI Mod Observer (Learning)</div>
+                                <div style="color: var(--text-muted); font-size: 0.9em;">Silently observes human mod actions to automatically harden your Layer 1 filter.</div>
+                            </div>
+                            <form action="/toggle-setting" method="POST" style="margin:0;">
+                                <input type="hidden" name="setting" value="ai_observer_mode">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" onChange="this.form.submit()" {% if settings.ai_observer_mode %}checked{% endif %}>
+                                    <span class="slider"></span>
+                                </label>
+                            </form>
+                        </div>
+                    </div>
 
-            <div style="border-top: 1px solid #333; padding-top: 20px;">
-                <h4 style="margin-top: 0; margin-bottom: 10px; color: #e5e7eb;">📢 Fire Custom On-Screen Alert</h4>
-                <p style="color: #9ca3af; font-size: 0.9em; margin-bottom: 15px;">Instantly beam an announcement or shoutout to your live stream (and the preview box above!).</p>
-                <form action="/custom-alert" method="POST" style="display: flex; flex-direction: column; gap: 10px;">
-                    <input type="text" name="alert_title" placeholder="Main Heading (e.g., GIVEAWAY TIME!)" style="padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
-                    <input type="text" name="alert_message" placeholder="Sub-message (e.g., Type !joinbr in chat now to enter the arena!)" style="padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: white;" required>
-                    <button type="submit" style="background: #9333ea; color: white; padding: 10px 15px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
-                        🚀 Launch Custom Widget
-                    </button>
-                </form>
-            </div>
-        </div>
-
-        <!-- DISCORD INTEGRATION PANEL -->
-        <div class="panel">
-            <h3>Discord Integration</h3>
-            {% if settings.is_discord_linked %}
-                <div style="background: rgba(34, 197, 94, 0.1); border: 1px solid #22c55e; padding: 15px; border-radius: 8px; color: #4ade80; margin-bottom: 10px;">
-                    ✅ <strong>Server Linked!</strong> Your Discord is actively connected to Goddess AI.
-                </div>
-            {% else %}
-                <a href="https://discord.com/api/oauth2/authorize?client_id=1518501209852350484&permissions=274878016512&scope=bot%20applications.commands" target="_blank" class="discord-invite">
-                   1️⃣ Add Bot to Discord Server
-                </a>
-                <div style="margin-top: 10px;">
-                    <p style="color: #9ca3af; margin-bottom: 8px;">2️⃣ Run this command inside your Discord server:</p>
-                    <div style="background: #111; padding: 15px; border-radius: 6px; font-family: monospace; color: #a855f7; font-size: 1.1em; letter-spacing: 1px; border: 1px solid #333;">
-                        /setup sync_code:{{ settings.server_sync_code }}
+                    <div class="grid-3">
+                        <div class="stat-card" style="border-top: 3px solid var(--success);">
+                            <div class="stat-label">Local Rule Bypass Rate</div>
+                            <div class="stat-val" style="color: var(--success);">98.6%</div>
+                        </div>
+                        <div class="stat-card" style="border-top: 3px solid var(--info);">
+                            <div class="stat-label">Structural Cache Hits</div>
+                            <div class="stat-val" style="color: var(--info);">412 ms</div>
+                        </div>
+                        <div class="stat-card" style="border-top: 3px solid var(--accent-primary);">
+                            <div class="stat-label">Gemini API Calls</div>
+                            <div class="stat-val" style="color: var(--accent-primary);">14 Reqs</div>
+                        </div>
                     </div>
                 </div>
-            {% endif %}
-        </div>
 
-        <!-- AI FEATURE TOGGLES -->
-        <div class="panel">
-            <h3>AI Control Modules</h3>
-            <p style="color: #9ca3af; margin-bottom: 20px;">Enable or disable core automated features of your bot.</p>
-            <div style="display: flex; flex-direction: column; gap: 15px;">
-                
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a32; padding: 15px; border-radius: 8px;">
-                    <div>
-                        <span style="color: white; font-weight: bold; display: block;">💬 AI Chat Co-Host</span>
-                        <span style="color: #9ca3af; font-size: 0.85em;">Bot will reply to users and automatically moderate spam.</span>
+                <!-- ========================================== -->
+                <!-- TAB 3: CREATOR ECONOMY                     -->
+                <!-- ========================================== -->
+                <div id="tab-economy" class="tab-content">
+                    <div class="grid-2">
+                        <div class="glass-panel">
+                            <h3><i class="fa-solid fa-bolt" style="color: var(--accent-primary);"></i> Custom Chat Commands</h3>
+                            <p>Configure bot triggers and automated timers (!reptuk).</p>
+                            
+                            <form action="/api/commands/add" method="POST" style="display: flex; gap: 8px; margin-bottom: 20px;">
+                                <input type="text" name="command_trigger" placeholder="!trigger" style="width: 120px;" required>
+                                <input type="text" name="response_text" placeholder="Bot response text..." style="flex: 1;" required>
+                                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i></button>
+                            </form>
+
+                            <div style="max-height: 300px; overflow-y: auto;">
+                                <table>
+                                    <tr><th>Trigger</th><th>Response</th><th></th></tr>
+                                    {% for cmd in commands %}
+                                    <tr>
+                                        <td style="color: var(--accent-primary); font-family: monospace; font-weight: bold;">{{ cmd.command_trigger }}</td>
+                                        <td style="color: #d4d4d8; font-size: 0.9em;">{{ cmd.response_text }}</td>
+                                        <td style="text-align: right;">
+                                            <form action="/api/commands/delete" method="POST" style="margin:0;">
+                                                <input type="hidden" name="command_id" value="{{ cmd.id }}">
+                                                <button type="submit" style="background:none; border:none; color: var(--danger); cursor: pointer;"><i class="fa-solid fa-trash"></i></button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </table>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="glass-panel">
+                                <h3><i class="fa-solid fa-star" style="color: #f43f5e;"></i> VIP Entrance Greeter</h3>
+                                <p>Automated custom replies on their first chat message.</p>
+                                <form action="/api/vip/add" method="POST" style="display: flex; gap: 8px; margin-bottom: 16px;">
+                                    <input type="text" name="target_username" placeholder="@Username" style="width: 140px;" required>
+                                    <input type="text" name="custom_reply" placeholder="Welcome back VIP!" style="flex: 1;" required>
+                                    <button type="submit" class="btn" style="background: #f43f5e; color: white;"><i class="fa-solid fa-plus"></i></button>
+                                </form>
+                                <div style="max-height: 200px; overflow-y: auto;">
+                                    <table>
+                                        {% for vip in vips %}
+                                        <tr>
+                                            <td style="color: #f43f5e; font-family: monospace;">{{ vip.target_username }}</td>
+                                            <td style="font-size: 0.85em;">{{ vip.custom_reply }}</td>
+                                            <td style="text-align: right;">
+                                                <form action="/api/vip/delete" method="POST" style="margin:0;">
+                                                    <input type="hidden" name="vip_id" value="{{ vip.id }}">
+                                                    <button type="submit" style="background:none; border:none; color: var(--danger); cursor: pointer;"><i class="fa-solid fa-xmark"></i></button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="glass-panel">
+                                <h3><i class="fa-solid fa-gamepad" style="color: var(--info);"></i> 1v1 Arena Queue</h3>
+                                <p>Users type <code>!join</code>. Mods pull with <code>!next</code>. AFK purged after 10m.</p>
+                                <div style="background: #000; padding: 16px; border-radius: 8px; font-family: monospace; color: var(--text-muted);">
+                                    <span style="color: var(--info);">#1</span> @RahulGamer99<br>
+                                    <span style="color: #52525b;">#2</span> @BGMI_King<br>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <form action="/toggle-setting" method="POST" style="margin: 0;">
-                        <input type="hidden" name="setting" value="ai_cohost">
-                        <button type="submit" style="background: {{ '#22c55e' if settings.ai_cohost_enabled else '#ef4444' }}; color: white; padding: 8px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
-                            {{ 'Enabled' if settings.ai_cohost_enabled else 'Disabled' }}
-                        </button>
-                    </form>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a32; padding: 15px; border-radius: 8px;">
-                    <div>
-                        <span style="color: white; font-weight: bold; display: block;">🛡️ Manual Mod Approval</span>
-                        <span style="color: #9ca3af; font-size: 0.85em;">AI asks human mods via chat before banning viewers.</span>
-                    </div>
-                    <form action="/toggle-setting" method="POST" style="margin: 0;">
-                        <input type="hidden" name="setting" value="manual_mod_mode">
-                        <button type="submit" style="background: {{ '#22c55e' if settings.manual_mod_mode else '#ef4444' }}; color: white; padding: 8px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
-                            {{ 'Asking Mode' if settings.manual_mod_mode else 'Auto-Ban' }}
-                        </button>
-                    </form>
-                </div>
+                <!-- ========================================== -->
+                <!-- TAB 4: WIDGETS & SETTINGS                  -->
+                <!-- ========================================== -->
+                <div id="tab-widgets" class="tab-content">
+                    <div class="grid-2">
+                        
+                        <!-- OBS Widget Controls -->
+                        <div class="glass-panel">
+                            <h3><i class="fa-solid fa-layer-group" style="color: var(--accent-primary);"></i> OBS Browser Source</h3>
+                            <p>Paste this URL into OBS. Test it live in the preview below.</p>
+                            
+                            <div style="display: flex; gap: 8px; margin-bottom: 24px;">
+                                <input type="text" id="obsLink" readonly value="https://{{ request.headers.get('host') }}/overlay/{{ settings.server_sync_code }}" style="color: var(--accent-primary); font-family: monospace;">
+                                <button onclick="copyOBS()" class="btn btn-primary"><i class="fa-solid fa-copy"></i></button>
+                            </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a32; padding: 15px; border-radius: 8px;">
-                    <div>
-                        <span style="color: white; font-weight: bold; display: block;">🧠 AI Mod Observer (Learning)</span>
-                        <span style="color: #9ca3af; font-size: 0.85em;">AI silently observes mod actions to automatically learn your chat rules.</span>
+                            <div style="width: 100%; height: 240px; background: #000; border-radius: 8px; border: 2px dashed #3f3f46; position: relative; overflow: hidden; margin-bottom: 16px;">
+                                <iframe src="/overlay/{{ settings.server_sync_code }}" style="width: 100%; height: 100%; border: none; position: relative; z-index: 2;"></iframe>
+                            </div>
+
+                            <form action="/test-alert" method="POST" style="margin-bottom: 16px;">
+                                <button type="submit" class="btn btn-success" style="width: 100%;"><i class="fa-solid fa-bell"></i> Fire Test Alert</button>
+                            </form>
+                            
+                            <div style="border-top: 1px solid var(--border-glass); padding-top: 16px;">
+                                <h4 style="font-size: 0.9em; margin-bottom: 8px;">Custom Announcement</h4>
+                                <form action="/custom-alert" method="POST" style="display: flex; flex-direction: column; gap: 8px;">
+                                    <input type="text" name="alert_title" placeholder="Heading (e.g. GIVEAWAY!)" required>
+                                    <input type="text" name="alert_message" placeholder="Subtext..." required>
+                                    <button type="submit" class="btn" style="background: var(--accent-primary); color: white;"><i class="fa-solid fa-paper-plane"></i> Launch Widget</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- Platform Settings -->
+                        <div>
+                            <!-- Multi-Channel Sync -->
+                            <div class="glass-panel">
+                                <h3><i class="fa-solid fa-link" style="color: var(--info);"></i> Multi-Channel Sync</h3>
+                                <p>Link a secondary YouTube account to share Economy and Commands.</p>
+                                
+                                {% if settings.linked_primary_id %}
+                                    <div class="alert-box alert-success" style="margin-bottom: 16px;">
+                                        <div>
+                                            <div style="font-weight: bold; margin-bottom: 4px;">✅ Linked to Primary ID #{{ settings.linked_primary_id }}</div>
+                                            <form action="/api/account/unlink" method="POST" style="margin: 0;">
+                                                <button type="submit" class="btn btn-danger" style="padding: 6px 12px; font-size: 0.8em;">Sever Link</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                    <div class="setting-row" style="background: transparent; padding: 0; border: none;">
+                                        <span style="font-size: 0.9em;">Sync Databases?</span>
+                                        <form action="/toggle-setting" method="POST" style="margin:0;">
+                                            <input type="hidden" name="setting" value="sync_settings">
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" onChange="this.form.submit()" {% if settings.sync_settings %}checked{% endif %}>
+                                                <span class="slider"></span>
+                                            </label>
+                                        </form>
+                                    </div>
+                                {% else %}
+                                    <form action="/api/account/link" method="POST" style="display: flex; gap: 8px;">
+                                        <input type="text" name="target_sync_code" placeholder="Primary Sync Code..." required>
+                                        <button type="submit" class="btn btn-primary">Link</button>
+                                    </form>
+                                {% endif %}
+                            </div>
+
+                            <!-- Discord Integration -->
+                            <div class="glass-panel">
+                                <h3><i class="fa-brands fa-discord" style="color: #5865F2;"></i> Discord Integration</h3>
+                                {% if settings.is_discord_linked %}
+                                    <div class="alert-box alert-success" style="margin:0;">✅ Server Actively Linked!</div>
+                                {% else %}
+                                    <a href="#" class="btn" style="background: #5865F2; color: white; width: 100%; margin-bottom: 12px;"><i class="fa-brands fa-discord"></i> 1. Add Bot to Server</a>
+                                    <p style="margin-bottom: 4px; font-size: 0.85em;">2. Run this command in your server:</p>
+                                    <div style="background: #000; padding: 12px; border-radius: 6px; font-family: monospace; color: var(--accent-primary); border: 1px solid #333;">
+                                        /setup sync_code:{{ settings.server_sync_code }}
+                                    </div>
+                                {% endif %}
+                            </div>
+
+                            <!-- PRO Upgrade -->
+                            <div class="glass-panel" style="background: linear-gradient(135deg, rgba(30,30,36,0.9), rgba(45,32,58,0.9)); border-color: var(--accent-primary);">
+                                <h3 style="color: var(--warning);"><i class="fa-solid fa-star"></i> Upgrade to PRO (₹50/mo)</h3>
+                                <ul style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 16px; padding-left: 20px;">
+                                    <li style="margin-bottom: 6px;">Unlimited Visual Builder Overlays</li>
+                                    <li style="margin-bottom: 6px;">Infinite Store Items & Custom CSS</li>
+                                    <li>Priority Background Worker Queue</li>
+                                </ul>
+                                <button class="btn" style="background: var(--warning); color: #000; width: 100%;"><i class="fa-solid fa-credit-card"></i> Unlock PRO with Razorpay</button>
+                            </div>
+                        </div>
+
                     </div>
-                    <form action="/toggle-setting" method="POST" style="margin: 0;">
-                        <input type="hidden" name="setting" value="ai_observer_mode">
-                        <button type="submit" style="background: {{ '#0ea5e9' if settings.ai_observer_mode else '#4b5563' }}; color: white; padding: 8px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
-                            {{ 'Observing' if settings.ai_observer_mode else 'Offline' }}
-                        </button>
-                    </form>
                 </div>
 
             </div>
-        </div>
-
-        <!-- VIEWER STATS PANEL -->
-        <div class="panel">
-            <h3>Top Viewers (Current Channel)</h3>
-            {% if viewers %}
-            <table style="width: 100%; text-align: left; border-collapse: collapse; margin-top: 15px;">
-                <tr style="border-bottom: 1px solid #444; color: #9ca3af;">
-                    <th style="padding: 10px 0;">Viewer Name</th>
-                    <th>Level</th>
-                    <th>Current XP</th>
-                </tr>
-                {% for viewer in viewers %}
-                <tr style="border-bottom: 1px solid #2a2a32;">
-                    <td style="padding: 12px 0;">{{ viewer.username }}</td>
-                    <td>{{ viewer.level }}</td>
-                    <td style="color: #a855f7; font-weight: bold;">{{ viewer.current_xp }}</td>
-                </tr>
-                {% endfor %}
-            </table>
-            {% else %}
-            <p style="color: #9ca3af; font-style: italic; margin-top: 15px;">No active viewers recorded in the database yet.</p>
-            {% endif %}
-        </div>
-        {% endif %}
+        </main>
     </div>
+    {% endif %}
 
-    <!-- Scripts -->
+    <!-- SPA Logic & Chat Reader -->
     <script>
+        // Copy to clipboard
         function copyOBS() {
             var copyText = document.getElementById("obsLink");
             copyText.select();
             document.execCommand("copy");
-            alert("OBS Browser Source URL copied to clipboard!");
+            
+            // Temporary Success State
+            let btn = event.currentTarget;
+            let ogHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-check"></i>';
+            btn.classList.add('btn-success');
+            setTimeout(() => { btn.innerHTML = ogHtml; btn.classList.remove('btn-success'); }, 2000);
         }
 
-        document.addEventListener("DOMContentLoaded", function(event) { 
-            var scrollpos = sessionStorage.getItem('scrollpos');
-            if (scrollpos) {
-                window.scrollTo(0, scrollpos);
-                sessionStorage.removeItem('scrollpos');
+        // SPA Tab Switching Logic
+        function switchTab(tabId) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            // Show selected tab
+            document.getElementById(tabId).classList.add('active');
+            
+            // Update sidebar UI
+            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+
+            // Save state so page reloads stay on same tab
+            sessionStorage.setItem('activeTab', tabId);
+        }
+
+        // Restore tab on page reload
+        document.addEventListener("DOMContentLoaded", function() { 
+            let savedTab = sessionStorage.getItem('activeTab');
+            if(savedTab) {
+                // Find the matching nav item and click it
+                let navs = document.querySelectorAll('.nav-item');
+                for(let nav of navs) {
+                    if(nav.getAttribute('onclick').includes(savedTab)) {
+                        nav.click();
+                        break;
+                    }
+                }
             }
         });
 
-        window.onbeforeunload = function(e) {
-            sessionStorage.setItem('scrollpos', window.scrollY);
-        };
-
-        // 3. LIVE CHAT DATABASE READER (0 API COST)
+        // Live Chat Database Reader
         let lastChatId = 0;
         const chatBox = document.getElementById('chat-container');
 
@@ -701,15 +638,12 @@
                     
                     data.messages.forEach(msg => {
                         const msgDiv = document.createElement('div');
-                        msgDiv.style.padding = '5px 0';
-                        msgDiv.style.borderBottom = '1px solid #2a2a32';
-                        
-                        // Creates the colored Channel Badge
+                        msgDiv.className = 'chat-msg';
                         msgDiv.innerHTML = `
-                            <span style="color: #71717a; font-size: 0.8em; margin-right: 5px;">[${msg.time}]</span> 
-                            <span style="background: #3b82f6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: bold; margin-right: 5px;">${msg.badge}</span>
-                            <strong style="color: #a855f7;">${msg.username}:</strong> 
-                            <span style="color: #e5e7eb;">${msg.message}</span>
+                            <span class="chat-time">[${msg.time}]</span> 
+                            <span class="chat-badge">${msg.badge}</span>
+                            <span class="chat-user">${msg.username}:</span> 
+                            <span class="chat-text">${msg.message}</span>
                         `;
                         chatBox.appendChild(msgDiv);
                         lastChatId = Math.max(lastChatId, msg.id);
