@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
 from app.database.connection import SessionLocal
-from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState, CustomCommand
+from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState, CustomCommand, WaitingListEntry
 from app.ai.generator import AIBrain
 from app.utils.config import Config
 from app.services.websocket import overlay_manager
@@ -331,7 +331,7 @@ class YouTubeChatMonitor:
                 args = parts[1:]
 
                 if command in ["!checkup", "!cheakup"]:
-                    await self.send_message("🤖 PREMIUM MOD CHECKUP: 1. !adduk !test hi 2. !edituk !test yo 3. !deluk !test 4. !reptuk !test 5 5. !timeout @user [secs] 6. !ban @user | Dev Discord: 998489383239946292", live_chat_id)
+                    await self.send_message("🤖 PREMIUM MOD CHECKUP: 1. !adduk !test hi 2. !edituk !test yo 3. !deluk !test 4. !reptuk !test 5 5. !timeout @user [secs] 6. !ban @user 7. !next | Dev Discord: 998489383239946292", live_chat_id)
                     return
                 elif command == "!adduk" and len(args) >= 2:
                     trig = args[0].strip().lower()
@@ -444,6 +444,16 @@ class YouTubeChatMonitor:
                         await self.observe_and_learn("Mod Explicit Permanent Ban", target, target_user_record.youtube_id, effective_id, webhook_url)
                     else:
                         await self.send_message(f"❌ Could not find YouTube ID for @{target}.", live_chat_id)
+                    return
+                elif command == "!next":
+                    next_user = db.query(WaitingListEntry).filter(WaitingListEntry.streamer_id == effective_id).order_by(WaitingListEntry.joined_at.asc()).first()
+                    if next_user:
+                        target_name = next_user.user.username
+                        db.delete(next_user)
+                        db.commit()
+                        await self.send_message(f"⚔️ UP NEXT: @{target_name}! Get ready for the 1v1 Arena!", live_chat_id)
+                    else:
+                        await self.send_message("❌ The 1v1 queue is currently empty.", live_chat_id)
                     return
 
             # ---------------------------------------------------------
@@ -592,6 +602,23 @@ class YouTubeChatMonitor:
                                 await self.send_message(f"🎡 Landed on 0x... @{username} lost everything.", live_chat_id)
                             else:
                                 await self.send_message(f"🎡 Landed on {multiplier}x! @{username} wins 🪙 {win}!", live_chat_id)
+
+            elif cmd == "!join":
+                # Check if they are already in the queue
+                existing = db.query(WaitingListEntry).filter(
+                    WaitingListEntry.streamer_id == effective_id,
+                    WaitingListEntry.user_id == user.id
+                ).first()
+                
+                if existing:
+                    await self.send_message(f"⚠️ @{username}, you are already in the queue!", live_chat_id)
+                else:
+                    db.add(WaitingListEntry(streamer_id=effective_id, user_id=user.id))
+                    db.commit()
+                    
+                    # Calculate their position in line
+                    position = db.query(WaitingListEntry).filter(WaitingListEntry.streamer_id == effective_id).count()
+                    await self.send_message(f"✅ @{username} joined the 1v1 Arena Queue! You are #{position} in line.", live_chat_id)
 
             elif cmd == "!joinbr":
                 game = self.br_games.get(live_chat_id)

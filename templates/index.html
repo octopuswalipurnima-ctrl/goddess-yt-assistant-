@@ -315,6 +315,17 @@
                                 <label class="toggle-switch"><input type="checkbox" onChange="this.form.submit()" {% if settings.manual_mod_mode %}checked{% endif %}><span class="slider"></span></label>
                             </form>
                         </div>
+
+                        <div class="setting-row">
+                            <div>
+                                <div style="color: #fff; font-weight: 600; font-size: 1.1em; margin-bottom: 4px;">🧠 AI Mod Observer (Learning)</div>
+                                <div style="color: var(--text-muted); font-size: 0.9em;">Silently observes human mod actions to automatically harden your Layer 1 filter.</div>
+                            </div>
+                            <form action="/toggle-setting" method="POST" style="margin:0;">
+                                <input type="hidden" name="setting" value="ai_observer_mode">
+                                <label class="toggle-switch"><input type="checkbox" onChange="this.form.submit()" {% if settings.ai_observer_mode %}checked{% endif %}><span class="slider"></span></label>
+                            </form>
+                        </div>
                     </div>
                 </div>
                 {% endif %}

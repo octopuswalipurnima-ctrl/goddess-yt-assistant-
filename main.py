@@ -323,7 +323,8 @@ async def generate_team_invite(
         # Safely construct the URL using native FastAPI attributes
         base_url = str(request.base_url).rstrip("/")
         magic_link = f"{base_url}/invite/{invite_token}"
-        safe_link = urllib.parse.quote(magic_link, safe="")
+        # FIX: Provide safe characters to ensure http:// doesn't break
+        safe_link = urllib.parse.quote(magic_link, safe=":/") 
         
         return RedirectResponse(url=f"/?invite_generated={safe_link}", status_code=303)
     except Exception as e:
