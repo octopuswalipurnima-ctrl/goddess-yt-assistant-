@@ -446,7 +446,7 @@ class YouTubeChatMonitor:
                         
                     last_reply_time = self.monitored_users[effective_id].get('last_bot_reply', 0)
 
-                    # 15-SECOND RATE LIMIT
+                    # 15-SECOND RATE LIMIT: Fast enough to chat, slow enough to block spam
                     if now - last_reply_time > 15:
                         recent_logs = db.query(ChatLog).filter(ChatLog.streamer_id == effective_id).order_by(ChatLog.timestamp.desc()).limit(6).all()
                         context = [{"username": log.user.username, "text": log.message} for log in reversed(recent_logs)]
@@ -731,8 +731,22 @@ class YouTubeChatMonitor:
                             self.active_streams[vid_id]["error_count"] = err_count
                             print(f"⚠️ [YOUTUBE CHAT GLITCH] Video {vid_id} error ({err_count}/5): {e}")
                             
+                            # 🚨 THE FIX: AUTO POWER-OFF ON 5 ERRORS
                             if err_count >= 5:
-                                print(f"🚨 [STREAM DISCONNECTED] Severing video {vid_id} after 5 consecutive failures.")
+                                print(f"🚨 [STREAM ENDED] Severing video {vid_id}. Powering down bot to 0% quota mode.")
+                                
+                                # 💤 AUTO-POWER OFF IN DATABASE
+                                if actual_id:
+                                    try:
+                                        st_record = db_session.query(Streamer).filter(Streamer.id == actual_id).first()
+                                        if st_record:
+                                            st_record.is_active = False
+                                            db_session.commit()
+                                            print(f"💤 [AUTO-POWER OFF] Channel {st_record.channel_name} set to inactive.")
+                                    except Exception as db_err:
+                                        db_session.rollback()
+                                        print(f"Error turning off streamer status: {db_err}")
+
                                 del self.active_streams[vid_id]
                     finally:
                         db_session.close()
