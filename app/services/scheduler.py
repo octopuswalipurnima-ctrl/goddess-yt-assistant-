@@ -160,7 +160,7 @@ async def websub_renewal_loop():
     
     while True:
         logger.info("[WEBSUB RENEWAL] Waking up to renew YouTube WebSub subscriptions...")
-       base_url = os.environ.get("BASE_URL", "").rstrip("/")
+        base_url = os.environ.get("BASE_URL", "").rstrip("/")
         
         if not base_url:
             logger.error("[WEBSUB RENEWAL] BASE_URL missing from Railway environment variables. Cannot renew.")
