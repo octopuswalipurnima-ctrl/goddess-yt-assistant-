@@ -235,7 +235,7 @@
                                 <div style="color: #52525b; text-align: center; font-style: italic; margin-top: 20px;">Establishing secure local connection...</div>
                             </div>
                         </div>
-
+                        
                         <div>
                             <div class="glass-panel" style="border-left: 4px solid var(--accent-primary);">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
@@ -294,6 +294,18 @@
                     <div class="glass-panel">
                         <h3><i class="fa-solid fa-brain" style="color: var(--success);"></i> AI Control Modules</h3>
                         
+                        <!-- NEW: MASTER BOT POWER TOGGLE -->
+                        <div class="setting-row" style="border-left: 4px solid var(--success); background: rgba(16, 185, 129, 0.05);">
+                            <div>
+                                <div style="color: #fff; font-weight: 600; font-size: 1.1em; margin-bottom: 4px;">⚡ Master Bot Power</div>
+                                <div style="color: var(--text-muted); font-size: 0.9em;">Enables/Disables the entire bot. Auto-turns ON via WebSub & OFF when stream ends.</div>
+                            </div>
+                            <form action="/toggle-setting" method="POST" style="margin:0;">
+                                <input type="hidden" name="setting" value="bot_power">
+                                <label class="toggle-switch"><input type="checkbox" onChange="this.form.submit()" {% if settings.is_active %}checked{% endif %}><span class="slider"></span></label>
+                            </form>
+                        </div>
+
                         <div class="setting-row">
                             <div>
                                 <div style="color: #fff; font-weight: 600; font-size: 1.1em; margin-bottom: 4px;">💬 AI Chat Co-Host</div>
@@ -448,7 +460,6 @@
                                     </td>
                                     <td style="color: var(--success);">System Default</td>
                                 </tr>
-                                <!-- Note: Future backend update can loop through streamer.team_members here -->
                             </table>
                         </div>
                     </div>

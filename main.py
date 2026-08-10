@@ -158,7 +158,7 @@ def subscribe_websub(channel_uc_id: str):
 
 
 # ---------------------------------------------------------
-# WORKSPACE SWITCHER ROUTE (NEW)
+# WORKSPACE SWITCHER ROUTE
 # ---------------------------------------------------------
 @app.get("/switch-workspace/{target_id}")
 async def switch_workspace(target_id: int, request: Request, db: Session = Depends(get_db)):
@@ -189,7 +189,7 @@ async def switch_workspace(target_id: int, request: Request, db: Session = Depen
 
 
 # ---------------------------------------------------------
-# FRONTEND DASHBOARD ROUTES (UPDATED FOR MULTI-TENANT)
+# FRONTEND DASHBOARD ROUTES
 # ---------------------------------------------------------
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
@@ -207,7 +207,6 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             request.session.clear()
             return RedirectResponse(url="/", status_code=303)
 
-        # 1. AUTO-CREATE THEIR OWN CHANNEL PROFILE (Every user is an owner)
         my_streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == user.youtube_id).first()
         if not my_streamer:
             my_streamer = Streamer(youtube_channel_id=user.youtube_id, channel_name=user.username)
@@ -215,7 +214,6 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             db.commit()
             db.refresh(my_streamer)
 
-        # 2. DETERMINE ACTIVE WORKSPACE
         active_streamer_id = request.session.get("streamer_id")
         if not active_streamer_id:
             active_streamer_id = my_streamer.id
@@ -231,14 +229,12 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             streamer.server_sync_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
             db.commit()
 
-        # 3. BUILD WORKSPACE LIST FOR DROPDOWN
         workspaces = [{"id": my_streamer.id, "name": f"{my_streamer.channel_name} (Personal)", "role": "owner"}]
         memberships = db.query(TeamMember).filter(TeamMember.user_id == user.id).all()
         for m in memberships:
-            if m.streamer_id != my_streamer.id: # Prevent duplicates
+            if m.streamer_id != my_streamer.id:
                 workspaces.append({"id": m.streamer_id, "name": m.streamer.channel_name, "role": m.role})
 
-        # 4. LOAD DASHBOARD DATA
         effective_id = streamer.effective_id
         viewers = db.query(User).join(XP).filter(XP.streamer_id == effective_id).all()
         recent_clips = db.query(ClipRecord).filter(ClipRecord.streamer_id == effective_id).order_by(ClipRecord.id.desc()).limit(6).all()
@@ -253,6 +249,7 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             if membership: ui_role = membership.role
         
         settings = {
+            "is_active": getattr(streamer, 'is_active', False),
             "ai_cohost_enabled": streamer.ai_cohost_enabled,
             "giveaway_reminders_enabled": streamer.giveaway_reminders_enabled,
             "server_sync_code": streamer.server_sync_code,
@@ -286,7 +283,9 @@ async def toggle_setting(
         streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
         effective_id = streamer.effective_id
         
-        if setting == "ai_cohost": streamer.ai_cohost_enabled = not streamer.ai_cohost_enabled
+        # ⚡ SMART POWER TOGGLE
+        if setting == "bot_power": streamer.is_active = not streamer.is_active
+        elif setting == "ai_cohost": streamer.ai_cohost_enabled = not streamer.ai_cohost_enabled
         elif setting == "giveaways": streamer.giveaway_reminders_enabled = not streamer.giveaway_reminders_enabled
         elif setting == "manual_mod_mode": MANUAL_MOD_MODE[effective_id] = not MANUAL_MOD_MODE.get(effective_id, True)
         elif setting == "ai_observer_mode": AI_OBSERVER_MODE[effective_id] = not AI_OBSERVER_MODE.get(effective_id, True)
@@ -320,10 +319,8 @@ async def generate_team_invite(
         db.add(AuditLog(streamer_id=streamer_id, user_id=auth["user_id"], action="GENERATE_INVITE", details=f"Generated {role} invite link."))
         db.commit()
         
-        # Safely construct the URL using native FastAPI attributes
         base_url = str(request.base_url).rstrip("/")
         magic_link = f"{base_url}/invite/{invite_token}"
-        # FIX: Provide safe characters to ensure http:// doesn't break
         safe_link = urllib.parse.quote(magic_link, safe=":/") 
         
         return RedirectResponse(url=f"/?invite_generated={safe_link}", status_code=303)
@@ -492,6 +489,7 @@ async def deploy_bot_manually(request: Request, stream_url: str = Form(...), db:
         return RedirectResponse(url="/?error=server_crash", status_code=303)
 
 
+# ⚡ AUTO-POWER OFF WHEN DISCONNECTED
 @app.post("/api/disconnect-bot")
 async def disconnect_bot_manually(request: Request, video_id: str = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "moderator"]))):
     try:
@@ -500,12 +498,14 @@ async def disconnect_bot_manually(request: Request, video_id: str = Form(...), d
         
         streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
         if streamer:
+            streamer.is_active = False # Power OFF the bot to save quota
+            
             valid_ids = [streamer.id]
             if streamer.linked_primary_id: valid_ids.append(streamer.linked_primary_id)
             for c in db.query(Streamer).filter(Streamer.linked_primary_id == streamer.id).all(): valid_ids.append(c.id)
             db.query(ChatLog).filter(ChatLog.streamer_id.in_(valid_ids)).delete(synchronize_session=False)
             
-            db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="BOT_DISCONNECTED", details=f"Severed bot from {video_id}"))
+            db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="BOT_DISCONNECTED", details=f"Severed bot from {video_id}. Power set to OFF."))
             db.commit()
             
         return RedirectResponse(url="/?success=disconnected", status_code=303)
@@ -630,6 +630,7 @@ async def verify_youtube_webhook(request: Request):
     challenge = request.query_params.get("hub.challenge")
     return Response(content=challenge, media_type="text/plain") if challenge else Response(status_code=400)
 
+# ⚡ AUTO-POWER ON WHEN WEBSUB SEES YOU GO LIVE
 @app.post("/api/youtube-webhook")
 async def receive_youtube_webhook(request: Request, db: Session = Depends(get_db)):
     try:
@@ -650,9 +651,14 @@ async def receive_youtube_webhook(request: Request, db: Session = Depends(get_db
                     streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == channel_id).first()
                     if streamer:
                         streamer_id = streamer.effective_id
+                        # Auto-wake the bot for this channel!
+                        streamer.is_active = True
+                        db.commit()
+                        logger.info(f"⚡ [AUTO-POWER ON] Activated bot for channel {streamer.channel_name} via WebSub!")
                 DETECTED_VIDEOS[video_id] = streamer_id
         return Response(status_code=204) 
     except Exception as e:
+        logger.error(f"[WEBSUB WEBHOOK ERROR] {e}")
         return Response(status_code=200)
 
 
@@ -676,4 +682,5 @@ async def startup_event():
 
 if __name__ == "__main__":
     railway_port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=railway_port, reload=False, proxy_headers=True, forwarded_allow_ips="*")
+    # Standardized format to prevent import failures in Railway
+    uvicorn.run("main:app", host="0.0.0.0", port=railway_port, proxy_headers=True, forwarded_allow_ips="*")
