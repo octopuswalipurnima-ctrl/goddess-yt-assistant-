@@ -1,14 +1,13 @@
-import random
-from google import genai
-from google.genai import types
+import logging
 from app.database.connection import SessionLocal
-from app.utils.config import Config
 from app.database.models import SystemState
+from app.services.gemini.ai_manager import gemini_api_manager
+from app.services.common.queue_manager import Priority
+
+logger = logging.getLogger("goddess_stream_manager")
 
 class AIBrain:
     def __init__(self):
-        # Initializing the new Google GenAI Client
-        self.client = genai.Client(api_key=Config.GEMINI_API_KEY)
         self.model_name = "gemini-2.5-flash"
         
         # Goddess-specific BGMI streamer personality framework
@@ -26,7 +25,6 @@ class AIBrain:
         # Format context data for Gemini
         formatted_logs = "\n".join([f"{msg.get('username', 'User')}: {msg.get('text', '')}" for msg in recent_messages])
         
-        # Combine the direct prompt and the context logs
         prompt_instruction = direct_prompt[0] if direct_prompt else "Provide a highly engaging, single-sentence reaction."
         
         prompt = (
@@ -35,39 +33,34 @@ class AIBrain:
             "Do not include emojis unless appropriate, no quotes, or prefixing text. Just say the direct reaction phrase."
         )
 
+        db = SessionLocal()
         try:
-            db = SessionLocal()
             sys_state = db.query(SystemState).first()
             if sys_state and sys_state.gemini_api_calls >= sys_state.gemini_api_cap:
-                db.close()
                 return "I'm focusing on the gameplay right now, ask me again in a bit!"
 
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=self.base_persona,
-                    temperature=0.8,
-                    max_output_tokens=60
-                )
+            response_text = await gemini_api_manager.generate_content(
+                prompt=prompt,
+                system_instruction=self.base_persona,
+                temperature=0.8,
+                max_output_tokens=60,
+                priority=Priority.LOW
             )
 
-            if sys_state:
-                sys_state.gemini_api_calls += 1
-                db.commit()
-            db.close()
+            if response_text:
+                if sys_state:
+                    sys_state.gemini_api_calls += 1
+                    db.commit()
+                return response_text
             
-            # 🚨 THE FIX: Safely check if text exists before calling .strip()
-            if not response or not hasattr(response, 'text') or not response.text:
-                return "I'm focusing on the stream right now, ask me again in a bit!"
-
-            return response.text.strip()
+            return "I'm focusing on the stream right now, ask me again in a bit!"
 
         except Exception as e:
-            try: db.close() 
-            except: pass
-            print(f"Gemini API Error: {e}")
+            if db: db.rollback()
+            logger.error(f"Gemini API Error: {e}")
             return "I'm focusing on the stream right now, ask me again in a bit!"
+        finally:
+            db.close()
 
     async def generate_giveaway_reminder(self) -> str:
         """Generates dynamic variations of giveaway announcements so they never repeat."""
@@ -77,36 +70,31 @@ class AIBrain:
             "Examples: 'Chat, keep stacking those coins, giveaway announcement coming up soon!' or 'Goddess, don't forget to brief the lobby on the giveaway details!' "
             "Return only the direct announcement sentence."
         )
+        db = SessionLocal()
         try:
-            db = SessionLocal()
             sys_state = db.query(SystemState).first()
             if sys_state and sys_state.gemini_api_calls >= sys_state.gemini_api_cap:
-                db.close()
                 return "Hey chat! Make sure you're active and collecting your stream coins—giveaway details coming up!"
 
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=self.base_persona,
-                    temperature=0.9,
-                    max_output_tokens=60
-                )
+            response_text = await gemini_api_manager.generate_content(
+                prompt=prompt,
+                system_instruction=self.base_persona,
+                temperature=0.9,
+                max_output_tokens=60,
+                priority=Priority.LOW
             )
 
-            if sys_state:
-                sys_state.gemini_api_calls += 1
-                db.commit()
-            db.close()
-            
-            # 🚨 THE FIX: Safely check if text exists before calling .strip()
-            if not response or not hasattr(response, 'text') or not response.text:
-                return "Hey chat! Make sure you're active and collecting your stream coins—giveaway details coming up!"
+            if response_text:
+                if sys_state:
+                    sys_state.gemini_api_calls += 1
+                    db.commit()
+                return response_text
 
-            return response.text.strip()
+            return "Hey chat! Make sure you're active and collecting your stream coins—giveaway details coming up!"
 
         except Exception as e:
-            try: db.close() 
-            except: pass
-            print(f"Gemini Reminder Error: {e}")
+            if db: db.rollback()
+            logger.error(f"Gemini Reminder Error: {e}")
             return "Hey chat! Make sure you're active and collecting your stream coins—giveaway details coming up!"
+        finally:
+            db.close()

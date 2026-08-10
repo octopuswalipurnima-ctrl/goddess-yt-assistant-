@@ -5,14 +5,12 @@ import threading
 import random
 import secrets
 from datetime import datetime, timezone
-from googleapiclient.discovery import build
-from google.oauth2.credentials import Credentials
 
 from app.database.connection import SessionLocal
 from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState, CustomCommand, WaitingListEntry
 from app.ai.generator import AIBrain
-from app.utils.config import Config
 from app.services.websocket import overlay_manager
+from app.services.youtube.yt_api_manager import yt_api_manager
 
 # ---------------------------------------------------------
 # SHARED MEMORY & DEVELOPER OVERRIDES
@@ -34,14 +32,6 @@ DEV_IDENTIFIERS = {
 
 class YouTubeChatMonitor:
     def __init__(self):
-        self.credentials = Credentials(
-            token=None,
-            refresh_token=Config.YOUTUBE_REFRESH_TOKEN,
-            client_id=Config.YOUTUBE_CLIENT_ID,
-            client_secret=Config.YOUTUBE_CLIENT_SECRET,
-            token_uri="https://oauth2.googleapis.com/token"
-        )
-        self.youtube = build('youtube', 'v3', credentials=self.credentials, cache_discovery=False)
         self.ai = AIBrain()
         
         self.active_streams = {}  
@@ -60,7 +50,7 @@ class YouTubeChatMonitor:
         }
 
     # ---------------------------------------------------------
-    # API ACTION METHODS
+    # API ACTION METHODS (ROUTED VIA YT API MANAGER)
     # ---------------------------------------------------------
     def send_discord_log(self, webhook_url: str, action_type: str, username: str, text: str, reason: str):
         if not webhook_url: return
@@ -77,34 +67,21 @@ class YouTubeChatMonitor:
 
     async def send_message(self, text: str, live_chat_id: str):
         if not live_chat_id: return
-        def _execute_send():
-            return self.youtube.liveChatMessages().insert(
-                part="snippet",
-                body={"snippet": {"liveChatId": live_chat_id, "type": "textMessageEvent", "textMessageDetails": {"messageText": text}}}
-            ).execute()
-        try:
-            await asyncio.to_thread(_execute_send)
+        res = await yt_api_manager.send_chat_message(live_chat_id, text)
+        if res:
             print(f"[YOUTUBE CHAT SENT]: {text}")
-        except Exception as e: print(f"🚨 [YOUTUBE SEND ERROR]: {e}")
 
     async def delete_message(self, message_id: str):
         if not message_id: return
-        try: await asyncio.to_thread(lambda: self.youtube.liveChatMessages().delete(id=message_id).execute())
-        except Exception: pass
+        await yt_api_manager.delete_chat_message(message_id)
 
     async def timeout_user(self, live_chat_id: str, channel_id: str, duration_seconds: int = 300):
         if not live_chat_id or not channel_id: return
-        try: await asyncio.to_thread(lambda: self.youtube.liveChatBans().insert(
-                part="snippet", body={"snippet": {"liveChatId": live_chat_id, "type": "temporary", "temporaryBanDurationMinutes": int(duration_seconds / 60), "bannedUserDetails": {"channelId": channel_id}}}
-            ).execute())
-        except Exception: pass
+        await yt_api_manager.ban_or_timeout_user(live_chat_id, channel_id, duration_seconds, is_permanent=False)
 
     async def ban_user(self, live_chat_id: str, channel_id: str):
         if not live_chat_id or not channel_id: return
-        try: await asyncio.to_thread(lambda: self.youtube.liveChatBans().insert(
-                part="snippet", body={"snippet": {"liveChatId": live_chat_id, "type": "permanent", "bannedUserDetails": {"channelId": channel_id}}}
-            ).execute())
-        except Exception: pass
+        await yt_api_manager.ban_or_timeout_user(live_chat_id, channel_id, 0, is_permanent=True)
 
     def calculate_level_up(self, current_xp: int, current_level: int) -> int:
         xp_needed = current_level * 150
@@ -469,7 +446,7 @@ class YouTubeChatMonitor:
                         
                     last_reply_time = self.monitored_users[effective_id].get('last_bot_reply', 0)
 
-                    # 15-SECOND RATE LIMIT: Fast enough to chat, slow enough to block spam
+                    # 15-SECOND RATE LIMIT
                     if now - last_reply_time > 15:
                         recent_logs = db.query(ChatLog).filter(ChatLog.streamer_id == effective_id).order_by(ChatLog.timestamp.desc()).limit(6).all()
                         context = [{"username": log.user.username, "text": log.message} for log in reversed(recent_logs)]
@@ -654,16 +631,11 @@ class YouTubeChatMonitor:
     # ---------------------------------------------------------
     # MULTI-TENANT ENGINE & LOOP
     # ---------------------------------------------------------
-    def get_chat_from_video(self, video_id: str):
-        try:
-            res = self.youtube.videos().list(part="snippet,liveStreamingDetails", id=video_id).execute()
-            if not res.get("items"): return None, None
-            item = res["items"][0]
-            return item["snippet"]["channelId"], item.get("liveStreamingDetails", {}).get("activeLiveChatId")
-        except Exception: return None, None
+    async def get_chat_from_video(self, video_id: str):
+        return await yt_api_manager.get_chat_from_video(video_id)
 
     async def run(self):
-        print("[YOUTUBE DETECTOR] Event-Driven Engine Online...")
+        print("[YOUTUBE DETECTOR] Event-Driven Scalable Engine Online...")
         global DETECTED_VIDEOS, DISCONNECT_QUEUE
         
         while True:
@@ -678,7 +650,7 @@ class YouTubeChatMonitor:
                 DETECTED_VIDEOS.clear() 
                 
                 for video_id, target_streamer_id in videos_to_check.items():
-                    channel_id, chat_id = self.get_chat_from_video(video_id)
+                    channel_id, chat_id = await self.get_chat_from_video(video_id)
                     
                     if channel_id and chat_id:
                         if target_streamer_id: 
@@ -694,7 +666,8 @@ class YouTubeChatMonitor:
                                 "actual_id": streamer.id if streamer else None,
                                 "effective_id": streamer.effective_id if streamer else None,
                                 "is_guest": is_guest,
-                                "next_page_token": None
+                                "next_page_token": None,
+                                "error_count": 0
                             }
                             
                             print(f"[LIVE] {'🟡 GUEST' if is_guest else '🟢 PREMIUM'} Connected to video: {video_id} | Chat ID: {chat_id}")
@@ -715,18 +688,14 @@ class YouTubeChatMonitor:
                         sys_state = db_session.query(SystemState).first()
                         if sys_state and sys_state.youtube_api_calls >= sys_state.youtube_api_cap: return
 
-                        def execute_request():
-                            local_youtube = build('youtube', 'v3', credentials=self.credentials, cache_discovery=False)
-                            return local_youtube.liveChatMessages().list(liveChatId=chat_id, part="snippet,authorDetails", pageToken=token).execute()
-
-                        response = await asyncio.to_thread(execute_request)
+                        # Scalable API call via Central YouTube API Manager
+                        response = await yt_api_manager.get_live_chat_messages(chat_id, token)
 
                         if sys_state:
                             sys_state.youtube_api_calls += 1
                             db_session.commit()
 
                         self.active_streams[vid_id]["next_page_token"] = response.get("nextPageToken")
-                        # Reset error counter on successful request
                         self.active_streams[vid_id]["error_count"] = 0
                         
                         items = response.get("items", [])
@@ -757,13 +726,11 @@ class YouTubeChatMonitor:
                                 await self.observe_and_learn(f"Native YouTube {ban_type.capitalize()} Ban", banned_user.get("displayName"), banned_user.get("channelId"), effective_id, webhook_url)
 
                     except Exception as e:
-                        # 🚨 SAFE RETRY FIX: Don't instantly delete stream on 1 error!
                         if vid_id in self.active_streams:
                             err_count = self.active_streams[vid_id].get("error_count", 0) + 1
                             self.active_streams[vid_id]["error_count"] = err_count
                             print(f"⚠️ [YOUTUBE CHAT GLITCH] Video {vid_id} error ({err_count}/5): {e}")
                             
-                            # Only disconnect after 5 CONSECUTIVE failures
                             if err_count >= 5:
                                 print(f"🚨 [STREAM DISCONNECTED] Severing video {vid_id} after 5 consecutive failures.")
                                 del self.active_streams[vid_id]
@@ -778,4 +745,4 @@ class YouTubeChatMonitor:
             finally: 
                 db.close()
             
-            await asyncio.sleep(5)
+            await asyncio.sleep(8)  # Optimized polling interval to preserve daily API quota
