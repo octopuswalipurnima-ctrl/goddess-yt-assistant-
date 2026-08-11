@@ -46,11 +46,11 @@
         h3 i { margin-right: 8px; }
         p { color: var(--text-muted); font-size: 0.9em; line-height: 1.5; margin-bottom: 16px; }
 
-        input[type="text"], input[type="number"], select {
+        input[type="text"], input[type="number"], select, textarea {
             width: 100%; padding: 12px 16px; border-radius: 8px; border: 1px solid #3f3f46; background: rgba(0,0,0,0.3); color: white;
             font-family: 'Inter', sans-serif; transition: border-color 0.2s;
         }
-        input:focus, select:focus { outline: none; border-color: var(--accent-primary); }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent-primary); }
 
         .btn {
             padding: 10px 20px; border-radius: 8px; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s; 
@@ -222,6 +222,10 @@
                         <div style="margin-bottom: 8px;"><i class="fa-solid fa-link"></i> Magic Invite Link Generated (Valid for 24h):</div>
                         <input type="text" readonly value="{{ request.query_params.get('invite_generated') }}" onclick="this.select()" style="font-family: monospace; color: var(--accent-primary); background: rgba(0,0,0,0.4); border: 1px solid var(--accent-primary); width: 100%; padding: 12px; border-radius: 8px;">
                     </div>
+                {% elif request.query_params.get('success') == 'ai_trained' %}
+                    <div class="alert-box alert-success"><i class="fa-solid fa-brain"></i> AI Successfully Trained! Applied {{ request.query_params.get('count') }} new rules to the Local Moderation Layer.</div>
+                {% elif request.query_params.get('error') == 'training_failed' %}
+                    <div class="alert-box alert-error"><i class="fa-solid fa-triangle-exclamation"></i> Training Failed: {{ request.query_params.get('msg') }}</div>
                 {% endif %}
 
                 <!-- ========================================== -->
@@ -291,10 +295,28 @@
                 <!-- ========================================== -->
                 {% if settings.user_role in ['owner', 'manager'] %}
                 <div id="tab-moderation" class="tab-content">
-                    <div class="glass-panel">
-                        <h3><i class="fa-solid fa-brain" style="color: var(--success);"></i> AI Control Modules</h3>
+                    
+                    <!-- NEW: DEVELOPER AI TRAINING MODULE -->
+                    <div class="glass-panel" style="border-left: 4px solid var(--info);">
+                        <h3><i class="fa-solid fa-graduation-cap" style="color: var(--info);"></i> Developer AI Training</h3>
+                        <p>Authorized developers can inject transcripts or written rules to harden the bot's Local Moderation Layer via Gemini AI.</p>
                         
-                        <!-- NEW: MASTER BOT POWER TOGGLE -->
+                        <form action="/api/dev/train-moderation" method="POST" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+                            <div class="grid-2">
+                                <input type="text" name="dev_username" placeholder="Developer Handle (e.g. sarthak raj)" required>
+                                <select name="input_type" required style="cursor: pointer;">
+                                    <option value="written_condition">Written Condition / Rule</option>
+                                    <option value="transcript">Video / Chat Transcript</option>
+                                </select>
+                            </div>
+                            <textarea name="content" rows="4" placeholder="Paste the transcript or describe the exact moderation scenario here..." style="resize: vertical;" required></textarea>
+                            <button type="submit" class="btn btn-primary" style="align-self: flex-start;"><i class="fa-solid fa-brain"></i> Train Moderation Layer</button>
+                        </form>
+                    </div>
+
+                    <div class="glass-panel">
+                        <h3><i class="fa-solid fa-sliders" style="color: var(--success);"></i> AI Control Modules</h3>
+                        
                         <div class="setting-row" style="border-left: 4px solid var(--success); background: rgba(16, 185, 129, 0.05);">
                             <div>
                                 <div style="color: #fff; font-weight: 600; font-size: 1.1em; margin-bottom: 4px;">⚡ Master Bot Power</div>
