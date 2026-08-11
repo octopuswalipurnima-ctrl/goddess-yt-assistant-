@@ -1,91 +1,75 @@
+import asyncio
 import logging
-from sqlalchemy.orm import Session
-from app.database.models import AutoLearnedRule, AuditLog
-from app.ai.generator import AIBrain
+from typing import Optional
+import google.generativeai as genai
+
+from app.services.common.rate_limiter import TokenBucketRateLimiter
+from app.services.common.queue_manager import APIQueueManager, Priority
+from app.services.common.credential_manager import gemini_cred_manager
 
 logger = logging.getLogger("goddess_stream_manager")
 
-class AITrainerService:
+class GeminiAPIManager:
     def __init__(self):
-        self.ai_brain = AIBrain()
+        self.model_name = "gemini-2.5-flash"
+        self.rate_limiter = TokenBucketRateLimiter(capacity=5, refill_rate_per_second=0.5)
+        self.queue_manager = APIQueueManager(max_concurrent=2)
 
-    async def train_from_content(
+    async def generate_content(
         self, 
-        db: Session, 
-        dev_username: str, 
-        streamer_id: int, 
-        data_content: str, 
-        input_type: str = "transcript"
-    ) -> dict:
-        """
-        Processes developer input from the web dashboard and stores rules into the DB.
-        Includes an intelligent fallback parser if Gemini API keys are restricted.
-        """
-        try:
-            # 1. Attempt AI extraction via Gemini
-            extracted_rules = await self.ai_brain.analyze_training_transcript(data_content, input_type)
+        prompt: str, 
+        system_instruction: str, 
+        temperature: float = 0.8, 
+        max_output_tokens: int = 60,
+        priority: Priority = Priority.LOW
+    ) -> Optional[str]:
+        
+        async def _raw_generate():
+            cred = gemini_cred_manager.get_healthy_credential()
+            if not cred: 
+                logger.error("[GEMINI API] 🚨 No healthy API keys available to use!")
+                return None
 
-            # 2. Smart Fallback: If Gemini fails (due to key/region 404 blocks), parse manually so devs aren't blocked
-            if not extracted_rules and data_content:
-                logger.warning("[AI TRAINER] Gemini API unavailable. Using smart local rule parser fallback.")
-                content_lower = data_content.lower()
-                
-                action = "Delete"
-                if "timeout" in content_lower:
-                    action = "Timeout"
-                elif "ban" in content_lower:
-                    action = "Ban"
-
-                # Extract potential keywords/phrases safely
-                extracted_rules = [{
-                    "pattern": data_content[:100].strip(), # Use the text snippet as the match pattern
-                    "rule_type": "contextual",
-                    "target_action": action,
-                    "reason": f"Manually trained rule by {dev_username}",
-                    "confidence_score": 1.0
-                }]
-
-            if not extracted_rules:
-                return {"success": False, "error": "No valid moderation rules could be extracted from the content."}
-
-            added_count = 0
-            for rule_data in extracted_rules:
-                pattern = rule_data.get("pattern")
-                if not pattern:
-                    continue
-
-                # Check if rule already exists for this streamer to prevent duplicates
-                existing = db.query(AutoLearnedRule).filter(
-                    AutoLearnedRule.streamer_id == streamer_id,
-                    AutoLearnedRule.pattern == pattern
-                ).first()
-
-                if not existing:
-                    new_rule = AutoLearnedRule(
-                        streamer_id=streamer_id,
-                        pattern=pattern,
-                        rule_type=rule_data.get("rule_type", "contextual"),
-                        target_action=rule_data.get("target_action", "Delete"),
-                        status="active",
-                        confidence_score=rule_data.get("confidence_score", 1.0)
-                    )
-                    db.add(new_rule)
-                    added_count += 1
-
-            # Log audit trail
-            db.add(AuditLog(
-                streamer_id=streamer_id,
-                user_id=1,  # Dev fallback ID
-                action="AI_TRAINING_EXECUTED",
-                details=f"Dev '{dev_username}' trained bot with {input_type}. Added {added_count} new rules."
-            ))
+            await self.rate_limiter.acquire(1)
             
-            db.commit()
-            return {"success": True, "rules_added": added_count}
+            def _execute_sdk_call():
+                genai.configure(api_key=cred.secret)
+                full_content = f"System Instruction: {system_instruction}\n\nUser Request: {prompt}"
+                
+                for mod_name in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"]:
+                    try:
+                        model = genai.GenerativeModel(model_name=mod_name)
+                        return model.generate_content(
+                            full_content,
+                            generation_config=genai.types.GenerationConfig(
+                                temperature=temperature,
+                                max_output_tokens=max_output_tokens
+                            )
+                        )
+                    except Exception:
+                        continue
+                raise Exception("All fallback Gemini model endpoints failed with this API key.")
+            
+            try:
+                response = await asyncio.to_thread(_execute_sdk_call)
+                if not response or not hasattr(response, 'text') or not response.text:
+                    return None
+                
+                cred.successful_requests += 1
+                return response.text.strip()
+                
+            except Exception as e:
+                err_msg = str(e).lower()
+                logger.error(f"[GEMINI SDK ERROR on {cred.identifier}] {e}")
+                
+                if "429" in err_msg or "quota" in err_msg or "exhausted" in err_msg:
+                    cred.apply_cooldown(seconds=120)
+                return None
 
+        try:
+            return await self.queue_manager.execute(priority, _raw_generate)
         except Exception as e:
-            db.rollback()
-            logger.error(f"[AI TRAINER ERROR] {e}")
-            return {"success": False, "error": str(e)}
+            logger.error(f"[GEMINI QUEUE ERROR] {e}")
+            return None
 
-trainer_service = AITrainerService()
+gemini_api_manager = GeminiAPIManager()
