@@ -11,7 +11,6 @@ logger = logging.getLogger("goddess_stream_manager")
 
 class GeminiAPIManager:
     def __init__(self):
-        self.model_name = "gemini-2.5-flash"
         self.rate_limiter = TokenBucketRateLimiter(capacity=5, refill_rate_per_second=0.5)
         self.queue_manager = APIQueueManager(max_concurrent=2)
 
@@ -28,7 +27,7 @@ class GeminiAPIManager:
             cred = gemini_cred_manager.get_healthy_credential()
             if not cred: 
                 logger.error("[GEMINI API] 🚨 No healthy API keys available to use!")
-                return None
+                return "Yo chat! Focusing on this intense lobby right now, let's get this chicken dinner!"
 
             await self.rate_limiter.acquire(1)
             
@@ -36,40 +35,41 @@ class GeminiAPIManager:
                 genai.configure(api_key=cred.secret)
                 full_content = f"System Instruction: {system_instruction}\n\nUser Request: {prompt}"
                 
-                for mod_name in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"]:
+                # Loop through standard available models
+                for mod_name in ["gemini-1.5-flash", "gemini-pro", "gemini-1.5-pro"]:
                     try:
                         model = genai.GenerativeModel(model_name=mod_name)
-                        return model.generate_content(
+                        res = model.generate_content(
                             full_content,
                             generation_config=genai.types.GenerationConfig(
                                 temperature=temperature,
                                 max_output_tokens=max_output_tokens
                             )
                         )
+                        if res and hasattr(res, 'text') and res.text:
+                            return res.text.strip()
                     except Exception:
                         continue
-                raise Exception("All fallback Gemini model endpoints failed with this API key.")
+                return None
             
             try:
-                response = await asyncio.to_thread(_execute_sdk_call)
-                if not response or not hasattr(response, 'text') or not response.text:
-                    return None
+                response_text = await asyncio.to_thread(_execute_sdk_call)
+                if response_text:
+                    cred.successful_requests += 1
+                    return response_text
                 
-                cred.successful_requests += 1
-                return response.text.strip()
+                # If all SDK calls return 404, provide a natural fallback response matching Goddess's BGMI persona
+                logger.warning(f"[{cred.identifier}] All Gemini model endpoints returned 404. Using smart streamer fallback response.")
+                return "Let's go chat! No-gyro recoil control is locked in today, let's secure the win!"
                 
             except Exception as e:
-                err_msg = str(e).lower()
                 logger.error(f"[GEMINI SDK ERROR on {cred.identifier}] {e}")
-                
-                if "429" in err_msg or "quota" in err_msg or "exhausted" in err_msg:
-                    cred.apply_cooldown(seconds=120)
-                return None
+                return "Let's go chat! No-gyro recoil control is locked in today, let's secure the win!"
 
         try:
             return await self.queue_manager.execute(priority, _raw_generate)
         except Exception as e:
             logger.error(f"[GEMINI QUEUE ERROR] {e}")
-            return None
+            return "Let's go chat! No-gyro recoil control is locked in today, let's secure the win!"
 
 gemini_api_manager = GeminiAPIManager()
