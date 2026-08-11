@@ -11,8 +11,6 @@ logger = logging.getLogger("goddess_stream_manager")
 
 class GeminiAPIManager:
     def __init__(self):
-        # Rolling back to 1.5-flash to ensure 100% compatibility with older server packages
-        self.model_name = "gemini-1.5-flash-latest" 
         self.rate_limiter = TokenBucketRateLimiter(capacity=5, refill_rate_per_second=0.5)
         self.queue_manager = APIQueueManager(max_concurrent=2)
 
@@ -35,19 +33,42 @@ class GeminiAPIManager:
             await self.rate_limiter.acquire(1)
             
             def _execute_sdk_call():
-                # Use standard generativeai syntax
                 genai.configure(api_key=cred.secret)
-                model = genai.GenerativeModel(
-                    model_name=self.model_name,
-                    system_instruction=system_instruction
-                )
-                return model.generate_content(
-                    prompt,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=temperature,
-                        max_output_tokens=max_output_tokens
+                
+                # Attempt to use the newest 1.5 Flash model
+                try:
+                    model = genai.GenerativeModel(
+                        model_name="gemini-1.5-flash",
+                        system_instruction=system_instruction
                     )
-                )
+                    return model.generate_content(
+                        prompt,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=temperature,
+                            max_output_tokens=max_output_tokens
+                        )
+                    )
+                except Exception as model_err:
+                    err_str = str(model_err).lower()
+                    
+                    # If Google throws a 404 (Model Not Found) due to region or key limits, FALLBACK to 1.0 Pro!
+                    if "404" in err_str or "not found" in err_str:
+                        logger.warning(f"[{cred.identifier}] 1.5-Flash restricted by Google. Falling back to universal gemini-pro.")
+                        
+                        fallback_model = genai.GenerativeModel(model_name="gemini-pro")
+                        
+                        # Gemini 1.0 doesn't support 'system_instruction' directly, so we inject it into the prompt!
+                        combined_prompt = f"SYSTEM INSTRUCTION: {system_instruction}\n\nUSER PROMPT: {prompt}"
+                        
+                        return fallback_model.generate_content(
+                            combined_prompt,
+                            generation_config=genai.types.GenerationConfig(
+                                temperature=temperature,
+                                max_output_tokens=max_output_tokens
+                            )
+                        )
+                    # If it's not a 404, raise the error so the outer try/except can catch rate limits
+                    raise model_err
             
             try:
                 response = await asyncio.to_thread(_execute_sdk_call)
