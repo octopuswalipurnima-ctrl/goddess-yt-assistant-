@@ -4,7 +4,7 @@ import requests
 import threading
 import random
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from app.database.connection import SessionLocal
 from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState, CustomCommand, WaitingListEntry
@@ -629,6 +629,40 @@ class YouTubeChatMonitor:
             if not is_guest: db.close()
 
     # ---------------------------------------------------------
+    # 🚨 SMART SOS ERROR HANDLER
+    # ---------------------------------------------------------
+    async def _send_sos_notice(self, live_chat_id: str, actual_id: int, error_msg: str):
+        db = SessionLocal()
+        try:
+            streamer = db.query(Streamer).filter(Streamer.id == actual_id).first()
+            if not streamer: return
+
+            # Calculate 10 minutes ago
+            ten_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=10)
+            
+            # Check if developer @uk_hi_kahda is actively in the database and seen recently
+            dev_user = db.query(User).filter(User.username.ilike('%uk_hi_kahda%')).first()
+            
+            tag_name = f"@{streamer.channel_name}" # Default to Streamer
+            if dev_user and dev_user.last_seen and dev_user.last_seen >= ten_mins_ago:
+                tag_name = "@uk_hi_kahda" # Dev is present! Tag them instead.
+
+            # Clean and truncate the error message so YouTube doesn't block it for being too long
+            clean_err = str(error_msg).replace('\n', ' ')[:40]
+            
+            # The custom Hindi SOS message
+            sos_text = f"{tag_name} dikkat ho gyi hai malik aga yha ho to shi kro {clean_err} yha dikkat hui ha"
+            
+            # Use raw yt_api_manager to send to avoid looping exceptions
+            await yt_api_manager.send_chat_message(live_chat_id, sos_text)
+            print(f"🚨 [SOS DEPLOYED] Pinged {tag_name} in chat for assistance.")
+            
+        except Exception as e:
+            print(f"[SOS FAILED] Could not send error message to chat: {e}")
+        finally:
+            db.close()
+
+    # ---------------------------------------------------------
     # MULTI-TENANT ENGINE & LOOP
     # ---------------------------------------------------------
     async def get_chat_from_video(self, video_id: str):
@@ -667,7 +701,8 @@ class YouTubeChatMonitor:
                                 "effective_id": streamer.effective_id if streamer else None,
                                 "is_guest": is_guest,
                                 "next_page_token": None,
-                                "error_count": 0
+                                "error_count": 0,
+                                "last_sos": 0.0 # Prevent spamming SOS messages
                             }
                             
                             print(f"[LIVE] {'🟡 GUEST' if is_guest else '🟢 PREMIUM'} Connected to video: {video_id} | Chat ID: {chat_id}")
@@ -715,15 +750,6 @@ class YouTubeChatMonitor:
                                 )
                             elif event_type in ["superChatEvent", "superStickerEvent", "newSponsorEvent", "membershipGiftingEvent", "memberMilestoneChatEvent"]:
                                 await self.handle_support_event(event_type, snippet, item["authorDetails"]["displayName"], item["authorDetails"]["channelId"], actual_id, effective_id, chat_id, is_guest)
-                            elif event_type == "userBannedEvent" and not is_guest:
-                                webhook_url = None
-                                st_record = db_session.query(Streamer).filter(Streamer.id == actual_id).first()
-                                if st_record: webhook_url = st_record.discord_webhook_url
-                                
-                                banned_details = snippet.get("userBannedDetails", {})
-                                banned_user = banned_details.get("bannedUserDetails", {})
-                                ban_type = banned_details.get("banType", "unknown")
-                                await self.observe_and_learn(f"Native YouTube {ban_type.capitalize()} Ban", banned_user.get("displayName"), banned_user.get("channelId"), effective_id, webhook_url)
 
                     except Exception as e:
                         if vid_id in self.active_streams:
@@ -731,22 +757,24 @@ class YouTubeChatMonitor:
                             self.active_streams[vid_id]["error_count"] = err_count
                             print(f"⚠️ [YOUTUBE CHAT GLITCH] Video {vid_id} error ({err_count}/5): {e}")
                             
+                            # 🚨 FIRE SOS NOTICE ON THE 3RD CONSECUTIVE STRIKE
+                            # (We use strike 3 so we don't spam chat for 1-second network blips)
+                            now = time.time()
+                            if err_count == 3 and (now - self.active_streams[vid_id]["last_sos"] > 300):
+                                self.active_streams[vid_id]["last_sos"] = now
+                                await self._send_sos_notice(chat_id, actual_id, str(e))
+                            
                             # 🚨 THE FIX: AUTO POWER-OFF ON 5 ERRORS
                             if err_count >= 5:
                                 print(f"🚨 [STREAM ENDED] Severing video {vid_id}. Powering down bot to 0% quota mode.")
-                                
-                                # 💤 AUTO-POWER OFF IN DATABASE
                                 if actual_id:
                                     try:
                                         st_record = db_session.query(Streamer).filter(Streamer.id == actual_id).first()
                                         if st_record:
                                             st_record.is_active = False
                                             db_session.commit()
-                                            print(f"💤 [AUTO-POWER OFF] Channel {st_record.channel_name} set to inactive.")
                                     except Exception as db_err:
                                         db_session.rollback()
-                                        print(f"Error turning off streamer status: {db_err}")
-
                                 del self.active_streams[vid_id]
                     finally:
                         db_session.close()
@@ -759,4 +787,4 @@ class YouTubeChatMonitor:
             finally: 
                 db.close()
             
-            await asyncio.sleep(8)  # Optimized polling interval to preserve daily API quota
+            await asyncio.sleep(8)
