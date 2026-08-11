@@ -38,10 +38,6 @@ class AIBrain:
 
         db = SessionLocal()
         try:
-            sys_state = db.query(SystemState).first()
-            if sys_state and sys_state.gemini_api_calls >= sys_state.gemini_api_cap:
-                return "I'm focusing on the gameplay right now, ask me again in a bit!"
-
             response_text = await gemini_api_manager.generate_content(
                 prompt=prompt,
                 system_instruction=self.base_persona,
@@ -51,17 +47,18 @@ class AIBrain:
             )
 
             if response_text:
+                sys_state = db.query(SystemState).first()
                 if sys_state:
                     sys_state.gemini_api_calls += 1
                     db.commit()
                 return response_text
             
-            return "I'm focusing on the stream right now, ask me again in a bit!"
+            return "AI returned an empty response. Check Railway logs."
 
         except Exception as e:
             if db: db.rollback()
-            logger.error(f"Gemini API Error: {e}")
-            return "I'm focusing on the stream right now, ask me again in a bit!"
+            logger.error(f"🚨 [AI CHAT REACTION CRASH] Details: {e}")
+            return f"AI Error: {str(e)[:30]}"
         finally:
             db.close()
 
