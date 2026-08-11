@@ -12,7 +12,7 @@ logger = logging.getLogger("goddess_stream_manager")
 class GeminiAPIManager:
     def __init__(self):
         # Rolling back to 1.5-flash to ensure 100% compatibility with older server packages
-        self.model_name = "gemini-1.5-flash" 
+        self.model_name = "gemini-1.5-flash-latest" 
         self.rate_limiter = TokenBucketRateLimiter(capacity=5, refill_rate_per_second=0.5)
         self.queue_manager = APIQueueManager(max_concurrent=2)
 
