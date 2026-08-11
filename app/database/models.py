@@ -438,17 +438,17 @@ class AutoLearnedRule(Base):
     __tablename__ = "auto_learned_rules"
     
     id = Column(Integer, primary_key=True, index=True)
-    streamer_id = Column(Integer, ForeignKey("streamers.id"))
+    streamer_id = Column(Integer, ForeignKey("streamers.id", ondelete="CASCADE"))
     
     pattern = Column(String, index=True)       # The actual regex pattern string or keyword string
     rule_type = Column(String, default="regex") # "regex" or "exact_match"
     target_action = Column(String)             # E.g., "Timeout", "Delete", "Warn"
     
     # State Engine tracking states: "pending_shadow", "shadowing", "proposed", "active", "rejected"
-    status = Column(String, default="pending_shadow", index=True) 
+    status = Column(String, default="active", index=True) 
     
     # Validation & Calibration Optimization Metrics Matrix
-    confidence_score = Column(Float, default=0.0)
+    confidence_score = Column(Float, default=0.9)
     shadow_hits = Column(Integer, default=0)
     false_positives = Column(Integer, default=0)
     
