@@ -11,6 +11,8 @@ logger = logging.getLogger("goddess_stream_manager")
 
 class GeminiAPIManager:
     def __init__(self):
+        # Aligning model name globally
+        self.model_name = "gemini-2.5-flash"
         self.rate_limiter = TokenBucketRateLimiter(capacity=5, refill_rate_per_second=0.5)
         self.queue_manager = APIQueueManager(max_concurrent=2)
 
@@ -24,7 +26,6 @@ class GeminiAPIManager:
     ) -> Optional[str]:
         
         async def _raw_generate():
-            # 1. Ask Credential Manager for a Healthy Key
             cred = gemini_cred_manager.get_healthy_credential()
             if not cred: 
                 logger.error("[GEMINI API] 🚨 No healthy API keys available to use!")
@@ -35,40 +36,23 @@ class GeminiAPIManager:
             def _execute_sdk_call():
                 genai.configure(api_key=cred.secret)
                 
-                # Attempt to use the newest 1.5 Flash model
-                try:
-                    model = genai.GenerativeModel(
-                        model_name="gemini-1.5-flash",
-                        system_instruction=system_instruction
-                    )
-                    return model.generate_content(
-                        prompt,
-                        generation_config=genai.types.GenerationConfig(
-                            temperature=temperature,
-                            max_output_tokens=max_output_tokens
-                        )
-                    )
-                except Exception as model_err:
-                    err_str = str(model_err).lower()
-                    
-                    # If Google throws a 404 (Model Not Found) due to region or key limits, FALLBACK to 1.0 Pro!
-                    if "404" in err_str or "not found" in err_str:
-                        logger.warning(f"[{cred.identifier}] 1.5-Flash restricted by Google. Falling back to universal gemini-pro.")
-                        
-                        fallback_model = genai.GenerativeModel(model_name="gemini-pro")
-                        
-                        # Gemini 1.0 doesn't support 'system_instruction' directly, so we inject it into the prompt!
-                        combined_prompt = f"SYSTEM INSTRUCTION: {system_instruction}\n\nUSER PROMPT: {prompt}"
-                        
-                        return fallback_model.generate_content(
-                            combined_prompt,
+                # Combine system instruction and prompt for maximum SDK compatibility
+                full_content = f"System Instruction: {system_instruction}\n\nUser Request: {prompt}"
+                
+                # Use the standard generative model generation with safety fallbacks
+                for mod_name in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"]:
+                    try:
+                        model = genai.GenerativeModel(model_name=mod_name)
+                        return model.generate_content(
+                            full_content,
                             generation_config=genai.types.GenerationConfig(
                                 temperature=temperature,
                                 max_output_tokens=max_output_tokens
                             )
                         )
-                    # If it's not a 404, raise the error so the outer try/except can catch rate limits
-                    raise model_err
+                    except Exception:
+                        continue
+                raise Exception("All fallback Gemini model endpoints failed with this API key.")
             
             try:
                 response = await asyncio.to_thread(_execute_sdk_call)
@@ -79,12 +63,11 @@ class GeminiAPIManager:
                 return response.text.strip()
                 
             except Exception as e:
-                # 2. Intelligent Failover: If Rate Limited/Quota Exceeded, put this key in timeout
                 err_msg = str(e).lower()
                 logger.error(f"[GEMINI SDK ERROR on {cred.identifier}] {e}")
                 
                 if "429" in err_msg or "quota" in err_msg or "exhausted" in err_msg:
-                    cred.apply_cooldown(seconds=120)  # 2 minute timeout for this specific project
+                    cred.apply_cooldown(seconds=120)
                 return None
 
         try:
@@ -93,5 +76,4 @@ class GeminiAPIManager:
             logger.error(f"[GEMINI QUEUE ERROR] {e}")
             return None
 
-# Global instance
 gemini_api_manager = GeminiAPIManager()
