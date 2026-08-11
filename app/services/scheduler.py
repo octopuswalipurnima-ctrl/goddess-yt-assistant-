@@ -19,6 +19,9 @@ logger = logging.getLogger("goddess_stream_manager")
 scheduler = AsyncIOScheduler()
 ai_brain = AIBrain()
 
+# Global variable to track if birthday wish was already sent today
+BIRTHDAY_WISHED_DATE = None
+
 async def award_passive_rewards():
     """Awards passive coins and XP to active viewers across all active streams every 5 minutes."""
     db = SessionLocal()
@@ -135,10 +138,60 @@ async def websub_renewal_loop():
             await asyncio.to_thread(renew)
         await asyncio.sleep(259200) # 3 days
 
+
+async def check_goddess_birthday_wish():
+    """
+    Checks if today is August 12th in IST (India Standard Time).
+    Sends a special birthday wish in YouTube Live Chat at 12:00 AM midnight
+    or whenever Goddess goes live on 12/08.
+    """
+    global BIRTHDAY_WISHED_DATE
+    
+    # Calculate Indian Standard Time (UTC + 5 hours 30 mins)
+    ist_now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    today_str = ist_now.strftime("%Y-%m-%d")
+    
+    # Target: August 12th (Month 8, Day 12)
+    if ist_now.month == 8 and ist_now.day == 12:
+        # Only execute if we haven't wished her today yet
+        if BIRTHDAY_WISHED_DATE != today_str:
+            if DETECTED_VIDEOS:
+                db = SessionLocal()
+                try:
+                    # Find Goddess's internal DB ID using her exact YouTube Channel ID
+                    goddess = db.query(Streamer).filter(Streamer.youtube_channel_id == "UCGH_osSgL2FCsBYe6XMxlSQ").first()
+                    
+                    if goddess:
+                        for video_id, streamer_id in list(DETECTED_VIDEOS.items()):
+                            # If her stream is currently detected as active
+                            if streamer_id == goddess.id:
+                                _, chat_id = await yt_api_manager.get_chat_from_video(video_id)
+                                if chat_id:
+                                    birthday_message = (
+                                        "🎂🎉 HAPPY BIRTHDAY GODDESS! 🥳✨ "
+                                        "Wishing you an epic year ahead filled with insane clutches, master-class recoil, "
+                                        "and non-stop chicken dinners! Have the most incredible day! ❤️🎮👑"
+                                    )
+                                    await yt_api_manager.send_chat_message(chat_id, birthday_message)
+                                    
+                                    # Mark as completed for today
+                                    BIRTHDAY_WISHED_DATE = today_str
+                                    logger.info(f"[BIRTHDAY] 🎈 Sent birthday wish to Goddess in chat {chat_id}!")
+                                    break
+                except Exception as e:
+                    logger.error(f"[BIRTHDAY ERROR] {e}")
+                finally:
+                    db.close()
+
+
 def start_scheduler():
     if not scheduler.running:
         scheduler.add_job(award_passive_rewards, 'interval', minutes=5)
         scheduler.add_job(prune_afk_waiting_list, 'interval', minutes=2)
         scheduler.add_job(reset_vip_greetings, 'cron', hour=3)
+        
+        # Check for Goddess's Birthday trigger every 1 minute
+        scheduler.add_job(check_goddess_birthday_wish, 'interval', minutes=1, id='goddess_birthday', replace_existing=True)
+        
         scheduler.start()
-        logger.info("[SCHEDULER] Background maintenance jobs active.")
+        logger.info("[SCHEDULER] Background maintenance jobs & Birthday Checker initialized.")
