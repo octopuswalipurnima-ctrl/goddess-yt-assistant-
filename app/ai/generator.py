@@ -1,4 +1,7 @@
+import json
 import logging
+from typing import List, Dict, Any
+
 from app.database.connection import SessionLocal
 from app.database.models import SystemState
 from app.services.gemini.ai_manager import gemini_api_manager
@@ -98,3 +101,47 @@ class AIBrain:
             return "Hey chat! Make sure you're active and collecting your stream coins—giveaway details coming up!"
         finally:
             db.close()
+
+    async def analyze_training_transcript(self, input_text: str, input_type: str = "transcript") -> List[Dict[str, Any]]:
+        """
+        Analyzes video transcripts or written moderation scenarios provided by Devs (e.g., Sarthak Raj).
+        Extracts structured moderation rules (patterns, actions, and context) to harden filters.
+        """
+        prompt = (
+            f"You are a master AI Moderation Engineer training a YouTube live stream bot.\n"
+            f"Input Type: {input_type.upper()}\n"
+            f"Content to analyze:\n\"\"\"{input_text}\"\"\"\n\n"
+            "Task: Extract all moderation rules, toxic patterns, spam triggers, or custom instructions from this content.\n"
+            "Return ONLY a valid JSON array of objects with the following schema:\n"
+            "[\n"
+            "  {\n"
+            "    \"pattern\": \"exact word or regex pattern\",\n"
+            "    \"rule_type\": \"exact_match\" or \"regex\" or \"contextual\",\n"
+            "    \"target_action\": \"Delete\" or \"Timeout\" or \"Ban\",\n"
+            "    \"reason\": \"Explanation of why this rule was extracted\",\n"
+            "    \"confidence_score\": 0.95\n"
+            "  }\n"
+            "]\n"
+            "Do NOT include any markdown formatting, code blocks, or preamble. Return RAW JSON ONLY."
+        )
+
+        try:
+            raw_response = await gemini_api_manager.generate_content(
+                prompt=prompt,
+                system_instruction="You are a strict data extraction AI that outputs raw valid JSON arrays only.",
+                temperature=0.2,
+                max_output_tokens=500,
+                priority=Priority.HIGH
+            )
+
+            if not raw_response:
+                return []
+
+            # Clean JSON formatting
+            clean_json = raw_response.replace("```json", "").replace("```", "").strip()
+            parsed_rules = json.loads(clean_json)
+            return parsed_rules if isinstance(parsed_rules, list) else []
+
+        except Exception as e:
+            logger.error(f"[AI TRAINING ERROR] Failed to analyze training data: {e}")
+            return []

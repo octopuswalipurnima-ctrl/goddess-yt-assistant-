@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timezone, timedelta
 
 from app.database.connection import SessionLocal
-from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState, CustomCommand, WaitingListEntry
+from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState, CustomCommand, WaitingListEntry, AutoLearnedRule
 from app.ai.generator import AIBrain
 from app.services.websocket import overlay_manager
 from app.services.youtube.yt_api_manager import yt_api_manager
@@ -48,6 +48,23 @@ class YouTubeChatMonitor:
             "bitch", "fuck", "asshole", "madarchod", "bhenchod",
             "nigga", "nigger", "slut", "whore"
         }
+
+    def load_learned_rules_for_streamer(self, streamer_id: int, db):
+        """Loads dynamically trained AI rules from the DB into runtime memory."""
+        if streamer_id not in self.hardened_rules:
+            self.hardened_rules[streamer_id] = set()
+
+        try:
+            learned_rules = db.query(AutoLearnedRule).filter(
+                AutoLearnedRule.streamer_id == streamer_id,
+                AutoLearnedRule.status == 'active'
+            ).all()
+
+            for rule in learned_rules:
+                if rule.pattern:
+                    self.hardened_rules[streamer_id].add(rule.pattern.lower().strip())
+        except Exception as e:
+            print(f"[RULES LOAD ERROR] Could not load learned rules: {e}")
 
     # ---------------------------------------------------------
     # API ACTION METHODS (ROUTED VIA YT API MANAGER)
@@ -719,6 +736,10 @@ class YouTubeChatMonitor:
                         is_guest = stream_data["is_guest"]
                         actual_id = stream_data["actual_id"]
                         effective_id = stream_data["effective_id"]
+
+                        # Pull dynamically learned AI rules into memory
+                        if effective_id:
+                            self.load_learned_rules_for_streamer(effective_id, db_session)
 
                         sys_state = db_session.query(SystemState).first()
                         if sys_state and sys_state.youtube_api_calls >= sys_state.youtube_api_cap: return

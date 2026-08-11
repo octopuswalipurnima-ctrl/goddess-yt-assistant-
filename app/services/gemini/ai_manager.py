@@ -1,26 +1,19 @@
 import asyncio
 import logging
 from typing import Optional
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 
-from app.utils.config import Config
-from app.services.common.cache import global_cache
 from app.services.common.rate_limiter import TokenBucketRateLimiter
 from app.services.common.queue_manager import APIQueueManager, Priority
+from app.services.common.credential_manager import gemini_cred_manager
 
 logger = logging.getLogger("goddess_stream_manager")
 
 class GeminiAPIManager:
     def __init__(self):
-        # Initializing Google GenAI Client
-        self.client = genai.Client(api_key=Config.GEMINI_API_KEY)
-        self.model_name = "gemini-2.5-flash"
-        
-        # Token Bucket: Allows bursts up to 5, refills at 0.5 tokens/sec (1 request per 2 seconds max)
+        # Rolling back to 1.5-flash to ensure 100% compatibility with older server packages
+        self.model_name = "gemini-1.5-flash" 
         self.rate_limiter = TokenBucketRateLimiter(capacity=5, refill_rate_per_second=0.5)
-        
-        # Queue Manager: Limits concurrent AI generation tasks to 2
         self.queue_manager = APIQueueManager(max_concurrent=2)
 
     async def generate_content(
@@ -31,37 +24,52 @@ class GeminiAPIManager:
         max_output_tokens: int = 60,
         priority: Priority = Priority.LOW
     ) -> Optional[str]:
-        """
-        Queues and executes a Gemini AI text generation request safely.
-        Applies rate limiting, queue priorities, thread offloading, and error handling.
-        """
+        
         async def _raw_generate():
+            # 1. Ask Credential Manager for a Healthy Key
+            cred = gemini_cred_manager.get_healthy_credential()
+            if not cred: 
+                logger.error("[GEMINI API] 🚨 No healthy API keys available to use!")
+                return None
+
             await self.rate_limiter.acquire(1)
             
-            # Offload synchronous Google GenAI SDK call to a worker thread
             def _execute_sdk_call():
-                return self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
+                # Use standard generativeai syntax
+                genai.configure(api_key=cred.secret)
+                model = genai.GenerativeModel(
+                    model_name=self.model_name,
+                    system_instruction=system_instruction
+                )
+                return model.generate_content(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(
                         temperature=temperature,
                         max_output_tokens=max_output_tokens
                     )
                 )
             
-            response = await asyncio.to_thread(_execute_sdk_call)
-            
-            # Safe response validation
-            if not response or not hasattr(response, 'text') or not response.text:
-                return None
+            try:
+                response = await asyncio.to_thread(_execute_sdk_call)
+                if not response or not hasattr(response, 'text') or not response.text:
+                    return None
                 
-            return response.text.strip()
+                cred.successful_requests += 1
+                return response.text.strip()
+                
+            except Exception as e:
+                # 2. Intelligent Failover: If Rate Limited/Quota Exceeded, put this key in timeout
+                err_msg = str(e).lower()
+                logger.error(f"[GEMINI SDK ERROR on {cred.identifier}] {e}")
+                
+                if "429" in err_msg or "quota" in err_msg or "exhausted" in err_msg:
+                    cred.apply_cooldown(seconds=120)  # 2 minute timeout for this specific project
+                return None
 
         try:
             return await self.queue_manager.execute(priority, _raw_generate)
         except Exception as e:
-            logger.error(f"[GEMINI API MANAGER] Generation error: {e}")
+            logger.error(f"[GEMINI QUEUE ERROR] {e}")
             return None
 
 # Global instance

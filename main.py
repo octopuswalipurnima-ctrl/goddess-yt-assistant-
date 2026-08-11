@@ -51,6 +51,9 @@ from app.services.websocket import overlay_manager
 from app.api.creator_economy import router as economy_router
 from app.utils.config import Config
 
+# Import the new AI Trainer Service
+from app.services.ai_trainer import trainer_service
+
 # ---------------------------------------------------------
 # COMPREHENSIVE LOGGING CONFIGURATION
 # ---------------------------------------------------------
@@ -583,6 +586,42 @@ async def delete_vip_guest(request: Request, vip_id: int = Form(...), db: Sessio
     except Exception:
         db.rollback()
         return RedirectResponse(url="/?error=server_crash", status_code=303)
+
+
+# ---------------------------------------------------------
+# AI MODERATION TRAINING (DEV ROUTE)
+# ---------------------------------------------------------
+@app.post("/api/dev/train-moderation")
+async def train_bot_moderation(
+    request: Request,
+    dev_username: str = Form(...),
+    input_type: str = Form(...), # "transcript", "written_condition", "video_data"
+    content: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Dev-Only Route: Trains the AI moderation engine on transcripts or written conditions.
+    """
+    streamer_id = request.session.get("streamer_id", 1)
+    
+    result = await trainer_service.train_from_content(
+        db=db,
+        dev_username=dev_username,
+        streamer_id=streamer_id,
+        data_content=content,
+        input_type=input_type
+    )
+
+    if result["success"]:
+        return RedirectResponse(
+            url=f"/?success=ai_trained&count={result['rules_added']}", 
+            status_code=303
+        )
+    else:
+        return RedirectResponse(
+            url=f"/?error=training_failed&msg={urllib.parse.quote(result['error'])}", 
+            status_code=303
+        )
 
 
 # ---------------------------------------------------------
