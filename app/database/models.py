@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, JSON, Float
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, JSON, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database.connection import Base
@@ -200,6 +200,22 @@ class ChatLog(Base):
 
     user = relationship("User", back_populates="chat_logs")
     streamer = relationship("Streamer", back_populates="chat_logs")
+
+
+class ChatCommandExecution(Base):
+    """Idempotency ledger for mutating YouTube chat commands.
+
+    YouTube can redeliver a live-chat item, so a message id may only be used
+    once within its stream scope.
+    """
+    __tablename__ = "chat_command_executions"
+    __table_args__ = (UniqueConstraint("streamer_id", "message_id", name="uq_chat_command_execution_stream_message"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    streamer_id = Column(Integer, ForeignKey("streamers.id"), nullable=False, index=True)
+    message_id = Column(String, nullable=False, index=True)
+    command = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class DiscordLink(Base):

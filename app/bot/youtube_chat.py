@@ -7,10 +7,11 @@ import secrets
 from datetime import datetime, timezone, timedelta
 
 from app.database.connection import SessionLocal
-from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState, CustomCommand, WaitingListEntry, AutoLearnedRule
+from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState, CustomCommand, WaitingListEntry, AutoLearnedRule, AuditLog
 from app.ai.generator import AIBrain
 from app.services.websocket import overlay_manager
 from app.services.youtube.yt_api_manager import yt_api_manager
+from app.services.chat_commands import ChatActor, ChatCommandService
 
 # ---------------------------------------------------------
 # SHARED MEMORY & DEVELOPER OVERRIDES
@@ -42,6 +43,9 @@ class YouTubeChatMonitor:
         self.greeted_users = set()
         self.custom_commands = {}
         self.br_games = {}
+        # Per-stream, bounded metadata needed by moderator chat actions.  We keep
+        # identifiers only; this is not an unbounded chat history.
+        self.recent_messages = {}
 
         self.banned_words = {
             "mc", "bc", "bsdk", "mkc", "chutiya", "gandu", 
@@ -271,7 +275,7 @@ class YouTubeChatMonitor:
     # ---------------------------------------------------------
     # CORE MESSAGE PROCESSOR
     # ---------------------------------------------------------
-    async def process_message(self, yt_user_id: str, username: str, message_text: str, message_id: str, actual_id: int, effective_id: int, live_chat_id: str, is_mod: bool, is_guest: bool = False):
+    async def process_message(self, yt_user_id: str, username: str, message_text: str, message_id: str, actual_id: int, effective_id: int, live_chat_id: str, is_mod: bool, is_guest: bool = False, is_owner: bool = False):
         db = SessionLocal() if not is_guest else None
         try:
             text_words = message_text.lower().split()
@@ -314,6 +318,24 @@ class YouTubeChatMonitor:
             # PREMIUM MODE LOGIC
             streamer = db.query(Streamer).filter(Streamer.id == actual_id).first()
             webhook_url = streamer.discord_webhook_url if streamer else None
+
+            # Central command path for production operations.  It is deliberately
+            # entered before the legacy command branches so one message cannot
+            # perform both a new and legacy mutation.
+            command_response = ChatCommandService(
+                db, effective_id, message_id,
+                ChatActor(yt_user_id, username, is_mod, is_owner or is_dev),
+            ).execute(message_text)
+            if command_response is not None:
+                await self.send_message(command_response, live_chat_id)
+                return
+
+            # A bounded current-stream buffer allows !delmsg to act on a real
+            # YouTube message id rather than resolving arbitrary user input.
+            if not command_text.startswith("!"):
+                messages = self.recent_messages.setdefault(effective_id, [])
+                messages.append({"message_id": message_id, "yt_user_id": yt_user_id, "username": username, "is_mod": is_mod})
+                del messages[:-100]
             
             manual_mod_approval = MANUAL_MOD_MODE.get(effective_id, True)
             ai_cohost_enabled = getattr(streamer, 'ai_cohost_enabled', True)
@@ -392,6 +414,34 @@ class YouTubeChatMonitor:
                     self.monitored_users[target_user] = {"yt_user_id": None, "strikes": 0, "last_checked": datetime.min.replace(tzinfo=timezone.utc)}
                     await self.send_message(f"👁️ AI is actively monitoring {target_user}.", live_chat_id)
                     return
+                elif command == "!mod" and args and args[0] in {"allow", "ban", "ignore"}:
+                    # Resolve only the most recently queued review for this stream;
+                    # chat cannot provide an arbitrary review id or cross streams.
+                    pending = next(
+                        ((name, data) for name, data in reversed(list(PENDING_ACTIONS.items())) if data.get("streamer_id") == effective_id),
+                        None,
+                    )
+                    if not pending:
+                        await self.send_message("❌ No moderation review is pending.", live_chat_id)
+                        return
+                    target, action_data = pending
+                    decision = args[0]
+                    if decision == "ban":
+                        if "msg_id" in action_data:
+                            await self.delete_message(action_data["msg_id"])
+                        if not await yt_api_manager.ban_or_timeout_user(live_chat_id, action_data["yt_id"], is_permanent=True):
+                            await self.send_message("❌ YouTube rejected the moderation action.", live_chat_id)
+                            return
+                        audit_action, reply = "MOD_REVIEW_BANNED", f"🚫 @{target} hidden from chat."
+                    elif decision == "allow":
+                        audit_action, reply = "MOD_REVIEW_ALLOWED", f"✅ AI review for @{target} allowed."
+                    else:
+                        audit_action, reply = "MOD_REVIEW_IGNORED", f"✅ AI review for @{target} ignored."
+                    actor = db.query(User).filter(User.youtube_id == yt_user_id).first()
+                    if actor: db.add(AuditLog(streamer_id=effective_id, user_id=actor.id, action=audit_action, details=target))
+                    del PENDING_ACTIONS[target]; db.commit()
+                    await self.send_message(reply, live_chat_id)
+                    return
                 elif command == "!punish" and args:
                     target = args[0].lower().replace("@", "")
                     if target in PENDING_ACTIONS:
@@ -429,6 +479,21 @@ class YouTubeChatMonitor:
                     else:
                         await self.send_message(f"❌ Could not find YouTube ID for @{target}.", live_chat_id)
                     return
+                elif command == "!tout" and args:
+                    target = args[0].lower().replace("@", "")
+                    duration = int(args[1]) if len(args) > 1 and args[1].isdigit() else 300
+                    if not 1 <= duration <= 86400:
+                        await self.send_message("❌ Timeout must be between 1 and 86400 seconds.", live_chat_id)
+                        return
+                    target_user_record = db.query(User).join(ChatLog).filter(ChatLog.streamer_id == actual_id, User.username.ilike(target)).order_by(ChatLog.id.desc()).first()
+                    if target_user_record and await yt_api_manager.ban_or_timeout_user(live_chat_id, target_user_record.youtube_id, duration):
+                        actor = db.query(User).filter(User.youtube_id == yt_user_id).first()
+                        if actor: db.add(AuditLog(streamer_id=effective_id, user_id=actor.id, action="VIEWER_TIMEOUT", details=f"{target_user_record.youtube_id}:{duration}"))
+                        db.commit()
+                        await self.send_message(f"⏱️ @{target_user_record.username} timed out for {duration}s.", live_chat_id)
+                    else:
+                        await self.send_message("❌ Timeout failed; target was not found in this stream or YouTube rejected it.", live_chat_id)
+                    return
                 elif command == "!ban" and args:
                     target = args[0].lower().replace("@", "")
                     target_user_record = db.query(User).filter(User.username.ilike(f"%{target}%")).first()
@@ -439,6 +504,31 @@ class YouTubeChatMonitor:
                     else:
                         await self.send_message(f"❌ Could not find YouTube ID for @{target}.", live_chat_id)
                     return
+                elif command == "!hid" and args:
+                    target = args[0].lower().replace("@", "")
+                    target_user_record = db.query(User).join(ChatLog).filter(ChatLog.streamer_id == actual_id, User.username.ilike(target)).order_by(ChatLog.id.desc()).first()
+                    if target_user_record and await yt_api_manager.ban_or_timeout_user(live_chat_id, target_user_record.youtube_id, is_permanent=True):
+                        actor = db.query(User).filter(User.youtube_id == yt_user_id).first()
+                        if actor: db.add(AuditLog(streamer_id=effective_id, user_id=actor.id, action="VIEWER_HIDDEN", details=target_user_record.youtube_id))
+                        db.commit()
+                        await self.send_message(f"🚫 @{target_user_record.username} hidden from chat.", live_chat_id)
+                    else:
+                        await self.send_message("❌ Hide failed; target was not found in this stream or YouTube rejected it.", live_chat_id)
+                    return
+                elif command == "!delmsg":
+                    candidates = [entry for entry in self.recent_messages.get(effective_id, []) if not entry["is_mod"]]
+                    if not candidates:
+                        await self.send_message("❌ No eligible recent message exists.", live_chat_id)
+                        return
+                    target = candidates[-1]
+                    if await yt_api_manager.delete_chat_message(target["message_id"]):
+                        actor = db.query(User).filter(User.youtube_id == yt_user_id).first()
+                        if actor: db.add(AuditLog(streamer_id=effective_id, user_id=actor.id, action="MESSAGE_DELETED", details=target["yt_user_id"]))
+                        db.commit()
+                        await self.send_message("✅ Most recent eligible message deleted.", live_chat_id)
+                    else:
+                        await self.send_message("❌ YouTube did not delete that message.", live_chat_id)
+                    return
                 elif command == "!next":
                     next_user = db.query(WaitingListEntry).filter(WaitingListEntry.streamer_id == effective_id).order_by(WaitingListEntry.joined_at.asc()).first()
                     if next_user:
@@ -448,6 +538,14 @@ class YouTubeChatMonitor:
                         await self.send_message(f"⚔️ UP NEXT: @{target_name}! Get ready for the 1v1 Arena!", live_chat_id)
                     else:
                         await self.send_message("❌ The 1v1 queue is currently empty.", live_chat_id)
+                    return
+                elif command == "!next1v1":
+                    next_user = db.query(WaitingListEntry).filter(WaitingListEntry.streamer_id == effective_id).order_by(WaitingListEntry.joined_at.asc(), WaitingListEntry.id.asc()).first()
+                    if next_user:
+                        target_name = next_user.user.username; db.delete(next_user); db.commit()
+                        await self.send_message(f"⚔️ UP NEXT: @{target_name}!", live_chat_id)
+                    else:
+                        await self.send_message("❌ The 1v1 queue is empty.", live_chat_id)
                     return
 
             # ---------------------------------------------------------
@@ -515,7 +613,7 @@ class YouTubeChatMonitor:
                         user_data["strikes"] += 1
                         
                         if manual_mod_approval:
-                            PENDING_ACTIONS[clean_target] = {"yt_id": yt_user_id, "strikes": user_data["strikes"], "msg_id": message_id}
+                            PENDING_ACTIONS[clean_target] = {"yt_id": yt_user_id, "strikes": user_data["strikes"], "msg_id": message_id, "streamer_id": effective_id}
                             await self.send_message(f"⚠️ [AI WARNING] @{username} flagged. Mods: type '!punish @{username}' or '!ignore @{username}'", live_chat_id)
                         else:
                             await self.delete_message(message_id)
@@ -766,8 +864,8 @@ class YouTubeChatMonitor:
                                     item["authorDetails"]["displayName"], 
                                     snippet["textMessageDetails"]["messageText"], 
                                     item["id"], actual_id, effective_id, chat_id, 
-                                    item["authorDetails"].get("isChatModerator", False) or item["authorDetails"].get("isChatOwner", False), 
-                                    is_guest
+                                    item["authorDetails"].get("isChatModerator", False) or item["authorDetails"].get("isChatOwner", False),
+                                    is_guest, item["authorDetails"].get("isChatOwner", False)
                                 )
                             elif event_type in ["superChatEvent", "superStickerEvent", "newSponsorEvent", "membershipGiftingEvent", "memberMilestoneChatEvent"]:
                                 await self.handle_support_event(event_type, snippet, item["authorDetails"]["displayName"], item["authorDetails"]["channelId"], actual_id, effective_id, chat_id, is_guest)
