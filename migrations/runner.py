@@ -21,6 +21,11 @@ MIGRATIONS = [("20260830_01_emergency_stop", [
     # not necessarily have a recoverable YouTube ID.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS youtube_id VARCHAR",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_youtube_id ON users (youtube_id)",
+]), ("20260830_03_user_timestamps", [
+    # Legacy user rows predate the audit timestamps declared by User.  The
+    # default preserves the model's server-side first_seen behavior.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS first_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP WITH TIME ZONE",
 ])]
 
 

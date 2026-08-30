@@ -20,11 +20,14 @@ class MigrationRunnerTests(unittest.TestCase):
         run(self.engine)
         self.assertIn("20260830_01_emergency_stop", self.versions())
         self.assertIn("20260830_02_user_youtube_identity", self.versions())
+        self.assertIn("20260830_03_user_timestamps", self.versions())
         self.assertIn("emergency_reason", {column["name"] for column in inspect(self.engine).get_columns("system_state")})
         self.assertIn("youtube_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
+        self.assertTrue({"first_seen", "last_seen"}.issubset({column["name"] for column in inspect(self.engine).get_columns("users")}))
         run(self.engine)
         self.assertEqual(self.versions().count("20260830_01_emergency_stop"), 1)
         self.assertEqual(self.versions().count("20260830_02_user_youtube_identity"), 1)
+        self.assertEqual(self.versions().count("20260830_03_user_timestamps"), 1)
 
     def test_existing_and_partially_changed_system_state_complete(self):
         with self.engine.begin() as conn:
@@ -41,7 +44,7 @@ class MigrationRunnerTests(unittest.TestCase):
             conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, username VARCHAR)"))
         run(self.engine, bootstrap=False)
         columns = {column["name"] for column in inspect(self.engine).get_columns("users")}
-        self.assertIn("youtube_id", columns)
+        self.assertTrue({"youtube_id", "first_seen", "last_seen"}.issubset(columns))
         with self.engine.begin() as conn:
             conn.execute(text("INSERT INTO users(id, username, youtube_id) VALUES (1, 'one', 'UC-one')"))
             with self.assertRaises(Exception):
