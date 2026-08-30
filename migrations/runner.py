@@ -15,6 +15,12 @@ logger = logging.getLogger("goddess_stream_manager")
 MIGRATIONS = [("20260830_01_emergency_stop", [
     "ALTER TABLE system_state ADD COLUMN IF NOT EXISTS emergency_stop BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE system_state ADD COLUMN IF NOT EXISTS emergency_reason VARCHAR",
+]), ("20260830_02_user_youtube_identity", [
+    # Older deployments created `users` before the bot started keeping the
+    # stable YouTube author identifier.  Keep this nullable: historic rows do
+    # not necessarily have a recoverable YouTube ID.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS youtube_id VARCHAR",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_youtube_id ON users (youtube_id)",
 ])]
 
 
@@ -39,6 +45,9 @@ def _statement_for_dialect(conn, statement: str) -> str | None:
 
 
 def _bootstrap(target_engine: Engine) -> None:
+    # Register mapped tables before create_all when the runner is invoked
+    # directly (rather than through the application import path).
+    from app.database import models  # noqa: F401
     if target_engine is engine:
         init_db()
     else:

@@ -19,17 +19,33 @@ class MigrationRunnerTests(unittest.TestCase):
     def test_fresh_database_and_rerun_are_safe(self):
         run(self.engine)
         self.assertIn("20260830_01_emergency_stop", self.versions())
+        self.assertIn("20260830_02_user_youtube_identity", self.versions())
         self.assertIn("emergency_reason", {column["name"] for column in inspect(self.engine).get_columns("system_state")})
+        self.assertIn("youtube_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
         run(self.engine)
         self.assertEqual(self.versions().count("20260830_01_emergency_stop"), 1)
+        self.assertEqual(self.versions().count("20260830_02_user_youtube_identity"), 1)
 
     def test_existing_and_partially_changed_system_state_complete(self):
         with self.engine.begin() as conn:
             conn.execute(text("CREATE TABLE system_state (id INTEGER PRIMARY KEY, emergency_stop BOOLEAN NOT NULL DEFAULT 0)"))
+            conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, username VARCHAR)"))
         run(self.engine, bootstrap=False)
         columns = {column["name"] for column in inspect(self.engine).get_columns("system_state")}
         self.assertIn("emergency_stop", columns)
         self.assertIn("emergency_reason", columns)
+
+    def test_legacy_users_table_gains_youtube_identity(self):
+        with self.engine.begin() as conn:
+            conn.execute(text("CREATE TABLE system_state (id INTEGER PRIMARY KEY, emergency_stop BOOLEAN NOT NULL DEFAULT 0)"))
+            conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, username VARCHAR)"))
+        run(self.engine, bootstrap=False)
+        columns = {column["name"] for column in inspect(self.engine).get_columns("users")}
+        self.assertIn("youtube_id", columns)
+        with self.engine.begin() as conn:
+            conn.execute(text("INSERT INTO users(id, username, youtube_id) VALUES (1, 'one', 'UC-one')"))
+            with self.assertRaises(Exception):
+                conn.execute(text("INSERT INTO users(id, username, youtube_id) VALUES (2, 'two', 'UC-one')"))
 
     def test_failed_migration_rolls_back_and_stops(self):
         with self.engine.begin() as conn:
