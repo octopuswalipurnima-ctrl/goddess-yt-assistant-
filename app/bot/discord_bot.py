@@ -7,6 +7,7 @@ from app.database.connection import SessionLocal
 # Added AutoLearnedRule and CostSavingsAnalytics for the CL Engine dashboard
 from app.database.models import User, DiscordLink, Streamer, AutoLearnedRule, CostSavingsAnalytics
 from app.utils.config import Config
+from app.services.discord_events import discord_events
 
 # ---------------------------------------------------------
 # IMPORT SHARED MEMORY: Connects Discord to YouTube Engine
@@ -23,6 +24,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     print(f"[DISCORD BOT] Logged in as {bot.user.name} and ready to scan for links!")
     try:
+        discord_events.configure(bot)
         synced = await bot.tree.sync()
         print(f"[DISCORD BOT] Synced {len(synced)} slash command(s).")
     except Exception as e:

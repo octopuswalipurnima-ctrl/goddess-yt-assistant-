@@ -27,11 +27,11 @@ MAX_REPEAT_MINUTES = 1440
 PROTECTED_COMMANDS = {
     "!adduk", "!deluk", "!edituk", "!reptuk", "!join", "!next1v1",
     "!coins", "!rank", "!store", "!buy", "!addst", "!delst", "!editst",
-    "!delmsg", "!tout", "!hid", "!mod", "!chps",
+    "!chps",
 }
 MUTATING_COMMANDS = {
     "!adduk", "!deluk", "!edituk", "!reptuk", "!join", "!next1v1",
-    "!buy", "!addst", "!delst", "!editst", "!delmsg", "!tout", "!hid", "!mod",
+    "!buy", "!addst", "!delst", "!editst",
 }
 COMMAND_RE = re.compile(r"^![a-z0-9][a-z0-9_-]{0,30}$")
 
@@ -86,7 +86,7 @@ class ChatCommandService:
         if command in {"!adduk", "!deluk", "!edituk", "!reptuk", "!addst", "!delst", "!editst"}:
             if not self.actor.is_owner:
                 return "❌ Owner permission required."
-        elif command in {"!next1v1", "!delmsg", "!tout", "!hid", "!mod"} and not self.actor.is_moderator:
+        elif command == "!next1v1" and not self.actor.is_moderator:
             return "❌ Moderator permission required."
 
         if command == "!adduk": return self._add_command(args)

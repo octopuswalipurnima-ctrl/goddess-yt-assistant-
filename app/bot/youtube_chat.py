@@ -1,17 +1,16 @@
 import asyncio
 import time
-import requests
-import threading
 import random
 import secrets
 from datetime import datetime, timezone, timedelta
 
 from app.database.connection import SessionLocal
-from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState, CustomCommand, WaitingListEntry, AutoLearnedRule, AuditLog
+from app.database.models import User, XP, Coin, ChatLog, DiscordLink, Streamer, SystemState, CustomCommand, WaitingListEntry, AutoLearnedRule, AuditLog, ChatCommandExecution
 from app.ai.generator import AIBrain
-from app.services.websocket import overlay_manager
 from app.services.youtube.yt_api_manager import yt_api_manager
 from app.services.chat_commands import ChatActor, ChatCommandService
+from app.services.discord_events import discord_events
+from app.services.emergency_stop import emergency_stop
 
 # ---------------------------------------------------------
 # SHARED MEMORY & DEVELOPER OVERRIDES
@@ -22,13 +21,6 @@ DISCONNECT_QUEUE = set()
 MANUAL_MOD_MODE = {}    # Asking Mode (Default: True)
 AI_OBSERVER_MODE = {}   # Learning Mode (Default: True)
 PENDING_ACTIONS = {}
-
-DEV_IDENTIFIERS = {
-    "@uk_hi_kahda", "uk_hi_kahda", "uk hi kahda", "ukhikahda",
-    "@goddessislive", "goddessislive", "goddess live",
-    "@nawaboislive", "nawaboislive", "nawabo is live",
-    "uccmwadkzxrznmmpzd5ek6pa"
-}
 
 
 class YouTubeChatMonitor:
@@ -73,18 +65,9 @@ class YouTubeChatMonitor:
     # ---------------------------------------------------------
     # API ACTION METHODS (ROUTED VIA YT API MANAGER)
     # ---------------------------------------------------------
-    def send_discord_log(self, webhook_url: str, action_type: str, username: str, text: str, reason: str):
-        if not webhook_url: return
-        def fire_webhook():
-            embed = {
-                "title": f"🚨 Action: {action_type}",
-                "description": f"**User:** {username}\n**Reason:** {reason}\n**Insight / Message:**\n`{text}`",
-                "color": 3447003 if "Learning" in action_type or "Hardened" in action_type else 16711680,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
-            try: requests.post(webhook_url, json={"embeds": [embed]})
-            except: pass
-        threading.Thread(target=fire_webhook).start()
+    def send_discord_log(self, channel_id: str, action_type: str, username: str, text: str, reason: str):
+        """Queue structured logs; Discord outages cannot stall chat moderation."""
+        discord_events.emit(f"Moderation: {action_type}", f"User: {username}\nReason: {reason}\nMessage: {text[:800]}", channel_id)
 
     async def send_message(self, text: str, live_chat_id: str):
         if not live_chat_id: return
@@ -262,9 +245,8 @@ class YouTubeChatMonitor:
                     db.commit()
 
                 streamer = db.query(Streamer).filter(Streamer.id == actual_id).first()
-                if streamer and streamer.server_sync_code:
-                    alert_payload = {"type": "alert", "event_type": event_type, "author": author_name, "message": message, "amount": amount_str}
-                    await overlay_manager.send_alert(streamer.server_sync_code, alert_payload)
+                if streamer:
+                    discord_events.emit("YouTube support event", f"{event_type}: {author_name} {amount_str}"[:1800], streamer.discord_log_channel_id)
 
             if message: await self.send_message(message, live_chat_id)
         except Exception as e:
@@ -281,14 +263,6 @@ class YouTubeChatMonitor:
             text_words = message_text.lower().split()
             clean_username = username.strip().lower()
             command_text = message_text.strip().lower()
-
-            is_dev = (
-                clean_username in DEV_IDENTIFIERS or 
-                clean_username.replace(" ", "") in DEV_IDENTIFIERS or
-                f"@{clean_username.replace(' ', '')}" in DEV_IDENTIFIERS or
-                yt_user_id.lower() in DEV_IDENTIFIERS
-            )
-            if is_dev: is_mod = True
 
             # GUEST MODE OVERRIDE
             if is_guest:
@@ -317,18 +291,29 @@ class YouTubeChatMonitor:
 
             # PREMIUM MODE LOGIC
             streamer = db.query(Streamer).filter(Streamer.id == actual_id).first()
-            webhook_url = streamer.discord_webhook_url if streamer else None
+            webhook_url = streamer.discord_log_channel_id if streamer else None
+
+            if emergency_stop.is_stopped(db):
+                # Continue recording/reading chat, but do not perform outbound actions.
+                return
 
             # Central command path for production operations.  It is deliberately
             # entered before the legacy command branches so one message cannot
             # perform both a new and legacy mutation.
             command_response = ChatCommandService(
                 db, effective_id, message_id,
-                ChatActor(yt_user_id, username, is_mod, is_owner or is_dev),
+                ChatActor(yt_user_id, username, is_mod, is_owner),
             ).execute(message_text)
             if command_response is not None:
                 await self.send_message(command_response, live_chat_id)
                 return
+
+            # Legacy moderation remains bound to the monitor's current-stream
+            # buffer, but gets the same replay ledger as central commands.
+            if is_mod and command_text.split(" ", 1)[0] in {"!delmsg", "!tout", "!hid", "!mod"}:
+                if db.query(ChatCommandExecution).filter_by(streamer_id=effective_id, message_id=message_id).first():
+                    return
+                db.add(ChatCommandExecution(streamer_id=effective_id, message_id=message_id, command=command_text.split(" ", 1)[0]))
 
             # A bounded current-stream buffer allows !delmsg to act on a real
             # YouTube message id rather than resolving arbitrary user input.

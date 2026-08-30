@@ -548,3 +548,5 @@ class SystemState(Base):
     gemini_api_calls = Column(Integer, default=0)
     youtube_api_cap = Column(Integer, default=10000)
     gemini_api_cap = Column(Integer, default=1000)
+    emergency_stop = Column(Boolean, default=False, nullable=False)
+    emergency_reason = Column(String, nullable=True)

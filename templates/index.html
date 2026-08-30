@@ -174,10 +174,6 @@
                 <li class="nav-item" onclick="switchTab('tab-economy')"><i class="fa-solid fa-store" style="width: 20px;"></i> Creator Economy</li>
                 {% endif %}
 
-                {% if settings.user_role in ['owner', 'manager', 'moderator'] %}
-                <li class="nav-item" onclick="switchTab('tab-widgets')"><i class="fa-solid fa-layer-group" style="width: 20px;"></i> Overlays & Widgets</li>
-                {% endif %}
-
                 {% if settings.user_role in ['owner', 'manager'] %}
                 <li class="nav-item" onclick="switchTab('tab-team')"><i class="fa-solid fa-users-gear" style="width: 20px;"></i> Team & Security</li>
                 {% endif %}
@@ -425,31 +421,6 @@
                 {% endif %}
 
                 <!-- ========================================== -->
-                <!-- TAB 4: WIDGETS & SETTINGS                  -->
-                <!-- ========================================== -->
-                {% if settings.user_role in ['owner', 'manager', 'moderator'] %}
-                <div id="tab-widgets" class="tab-content">
-                    <div class="grid-2">
-                        <div class="glass-panel">
-                            <h3><i class="fa-solid fa-layer-group" style="color: var(--accent-primary);"></i> OBS Browser Source</h3>
-                            <div style="display: flex; gap: 8px; margin-bottom: 24px;">
-                                <input type="text" id="obsLink" readonly value="https://{{ request.headers.get('host') }}/overlay/{{ settings.server_sync_code }}" style="color: var(--accent-primary); font-family: monospace;">
-                                <button onclick="copyOBS()" class="btn btn-primary"><i class="fa-solid fa-copy"></i></button>
-                            </div>
-                            <div style="width: 100%; height: 240px; background: #000; border-radius: 8px; border: 2px dashed #3f3f46; position: relative; overflow: hidden; margin-bottom: 16px;">
-                                <iframe src="/overlay/{{ settings.server_sync_code }}" style="width: 100%; height: 100%; border: none;"></iframe>
-                            </div>
-                            <form action="/custom-alert" method="POST" style="display: flex; flex-direction: column; gap: 8px;">
-                                <input type="text" name="alert_title" placeholder="Heading (e.g. GIVEAWAY!)" required>
-                                <input type="text" name="alert_message" placeholder="Subtext..." required>
-                                <button type="submit" class="btn" style="background: var(--accent-primary); color: white;"><i class="fa-solid fa-paper-plane"></i> Launch Custom Alert Widget</button>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-                {% endif %}
-
-                <!-- ========================================== -->
                 <!-- TAB 5: TEAM & SECURITY (Owners/Managers)   -->
                 <!-- ========================================== -->
                 {% if settings.user_role in ['owner', 'manager'] %}
@@ -494,17 +465,6 @@
     {% endif %}
 
     <script>
-        function copyOBS() {
-            var copyText = document.getElementById("obsLink");
-            copyText.select();
-            document.execCommand("copy");
-            let btn = event.currentTarget;
-            let ogHtml = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-check"></i>';
-            btn.classList.add('btn-success');
-            setTimeout(() => { btn.innerHTML = ogHtml; btn.classList.remove('btn-success'); }, 2000);
-        }
-
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
             const targetTab = document.getElementById(tabId);

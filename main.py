@@ -21,13 +21,14 @@ import uuid
 import secrets
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI, Request, Depends, Form, WebSocket, WebSocketDisconnect, Response, HTTPException, status
+from fastapi import FastAPI, Request, Depends, Form, Response, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database.connection import init_db, get_db
@@ -47,9 +48,10 @@ from app.bot.youtube_chat import (
 
 from app.bot.discord_bot import start_discord_bot
 from app.services.scheduler import start_scheduler, start_timed_command_loop, websub_renewal_loop
-from app.services.websocket import overlay_manager
 from app.api.creator_economy import router as economy_router
 from app.utils.config import Config
+from app.services.emergency_stop import emergency_stop
+from app.services.discord_events import discord_events
 
 # Import the new AI Trainer Service
 from app.services.ai_trainer import trainer_service
@@ -69,7 +71,7 @@ app = FastAPI(title="Goddess Stream Manager")
 # 2. MIDDLEWARE & BROWSER SESSIONS
 app.add_middleware(
     SessionMiddleware, 
-    secret_key="super-secret-goddess-key-change-later",
+    secret_key=Config.SESSION_SECRET or secrets.token_urlsafe(32),
     max_age=3600 * 24 * 7,
     https_only=False,  
     same_site="lax" 
@@ -100,17 +102,6 @@ def require_role(allowed_roles: list):
 
         streamer = db.query(Streamer).filter(Streamer.id == active_dashboard_id).first()
         
-        # Legacy ID auto-patcher to prevent AuditLog crashes
-        if not logged_in_user_id and streamer:
-            user = db.query(User).filter(User.youtube_id == streamer.youtube_channel_id).first()
-            if not user:
-                user = User(youtube_id=streamer.youtube_channel_id, username=streamer.channel_name)
-                db.add(user)
-                db.commit()
-                db.refresh(user)
-            logged_in_user_id = user.id
-            request.session["user_id"] = user.id
-
         if logged_in_user_id and streamer:
             user = db.query(User).filter(User.id == logged_in_user_id).first()
             if user and streamer.youtube_channel_id == user.youtube_id:
@@ -624,45 +615,20 @@ async def train_bot_moderation(
         )
 
 
-# ---------------------------------------------------------
-# OBS WIDGET TESTING
-# ---------------------------------------------------------
-@app.post("/test-alert")
-async def test_alert(request: Request, db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "moderator"]))):
-    st = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
-    if st and st.server_sync_code:
-        await overlay_manager.send_alert(st.server_sync_code, {"type": "alert", "event_type": "superChatEvent", "author": "System Tester", "message": "Test Alert Working!", "amount": "$50.00"})
+@app.get("/healthz")
+async def healthz(db: Session = Depends(get_db)):
+    """Readiness endpoint without disclosing credentials or internal state."""
+    db.execute(text("SELECT 1"))
+    return {"status": "stopped" if emergency_stop.is_stopped(db) else "ok"}
+
+@app.post("/admin/emergency-stop")
+async def set_emergency_stop(request: Request, enabled: bool = Form(...), reason: str = Form(""), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner"]))):
+    streamer_id = request.session.get("streamer_id")
+    emergency_stop.set(db, enabled, reason)
+    db.add(AuditLog(streamer_id=streamer_id, user_id=auth["user_id"], action="EMERGENCY_STOP_SET", details=(reason or "cleared")[:500]))
+    db.commit()
+    discord_events.emit("Emergency stop", f"{'ENABLED' if enabled else 'CLEARED'}: {(reason or 'no reason')[:500]}")
     return RedirectResponse(url="/", status_code=303)
-
-@app.post("/custom-alert")
-async def custom_alert(request: Request, alert_title: str = Form(...), alert_message: str = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner", "manager", "moderator"]))):
-    try:
-        st = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
-        if st and st.server_sync_code:
-            await overlay_manager.send_alert(st.server_sync_code, {"type": "alert", "event_type": "newSponsorEvent", "author": alert_title, "message": alert_message, "amount": "📢 ANNOUNCEMENT"})
-            db.add(AuditLog(streamer_id=st.id, user_id=auth["user_id"], action="FIRED_CUSTOM_ALERT", details=f"Alert: {alert_title}"))
-            db.commit()
-        return RedirectResponse(url="/", status_code=303)
-    except Exception:
-        db.rollback()
-        return RedirectResponse(url="/?error=server_crash", status_code=303)
-
-
-# ---------------------------------------------------------
-# WEBSOCKET AND RAW OBS RENDERERS
-# ---------------------------------------------------------
-@app.get("/overlay/{sync_code}")
-async def render_overlay(request: Request, sync_code: str):
-    return templates.TemplateResponse(request=request, name="overlay.html", context={"request": request, "sync_code": sync_code, "active_theme": request.session.get("active_theme", "neon"), "custom_css": request.session.get("custom_css", "")})
-
-@app.websocket("/ws/overlay/{sync_code}")
-async def websocket_overlay(websocket: WebSocket, sync_code: str):
-    await overlay_manager.connect(websocket, sync_code)
-    try:
-        while True:
-            data = await websocket.receive_text()
-    except Exception:
-        overlay_manager.disconnect(websocket, sync_code)
 
 @app.get("/api/youtube-webhook")
 async def verify_youtube_webhook(request: Request):
@@ -718,6 +684,12 @@ async def startup_event():
         asyncio.create_task(start_timed_command_loop()),
         asyncio.create_task(websub_renewal_loop())
     ])
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    for task in running_tasks:
+        task.cancel()
+    await discord_events.close()
 
 if __name__ == "__main__":
     railway_port = int(os.environ.get("PORT", 8000))

@@ -7,14 +7,15 @@ from google.genai import types
 from app.services.common.rate_limiter import TokenBucketRateLimiter
 from app.services.common.queue_manager import APIQueueManager, Priority
 from app.services.common.credential_manager import gemini_cred_manager
+from app.utils.config import Config
 
 logger = logging.getLogger("goddess_stream_manager")
 
 class GeminiAPIManager:
     def __init__(self):
         # Default primary and fallback models using current supported SDK standards
-        self.primary_model = "gemini-2.5-flash"
-        self.fallback_model = "gemini-2.5-flash-lite"
+        self.primary_model = Config.GEMINI_PRIMARY_MODEL
+        self.fallback_model = Config.GEMINI_FALLBACK_MODEL
         self.rate_limiter = TokenBucketRateLimiter(capacity=5, refill_rate_per_second=0.5)
         self.queue_manager = APIQueueManager(max_concurrent=2)
 

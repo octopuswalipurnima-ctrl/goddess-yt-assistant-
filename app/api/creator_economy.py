@@ -20,7 +20,7 @@ async def redeem_item(request: Request, item_id: int, user_id: int, db: Session 
     # 1. Fetch Item and User Economy Data (Logic omitted for brevity)
     # 2. Check stock and cooldowns
     # 3. Deduct coins and log StoreRedemption
-    # 4. Trigger OBS overlay alert via existing websocket manager for the redemption
+    # Notifications are emitted asynchronously by the chat-command path.
     pass
 
 @router.get("/viewer/{streamer_id}/{user_id}")

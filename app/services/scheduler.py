@@ -10,7 +10,6 @@ from app.database.connection import SessionLocal
 
 from app.database.models import User, Coin, XP, CustomCommand, Streamer, VIPGuest, WaitingListEntry
 from app.ai.generator import AIBrain
-from app.services.websocket import overlay_manager
 from app.services.youtube.yt_api_manager import yt_api_manager
 from app.bot.youtube_chat import DETECTED_VIDEOS
 

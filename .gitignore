@@ -1,0 +1,7 @@
+.env
+*.py[cod]
+__pycache__/
+.pytest_cache/
+goddess.db
+*.sqlite*
+server_log.txt

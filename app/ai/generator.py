@@ -11,7 +11,9 @@ logger = logging.getLogger("goddess_stream_manager")
 
 class AIBrain:
     def __init__(self):
-        self.model_name = "gemini-2.5-flash"
+        # Calls are routed through GeminiAPIManager, which owns model fallback
+        # and key cooldown/rotation. Keep no second hard-coded model here.
+        self.model_name = None
         
         # Goddess-specific BGMI streamer personality framework
         self.base_persona = (

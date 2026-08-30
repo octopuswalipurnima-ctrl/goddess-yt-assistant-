@@ -1,15 +1,9 @@
-import os
 import json
 import hashlib
-from fastapi import Request
 from sqlalchemy.orm import Session
-from google import genai
-from google.genai import types
 from app.database.models import DecisionCache, SystemState
-
-# Initialize modern GenAI SDK
-# Make sure to set GEMINI_API_KEY in your Railway deployment environment variables
-client = genai.Client()
+from app.services.gemini.ai_manager import gemini_api_manager
+from app.services.common.queue_manager import Priority
 
 class GeminiModeratorEngine:
     def __init__(self, db: Session):
@@ -73,24 +67,23 @@ class GeminiModeratorEngine:
                     "reason": "Gemini API cap exceeded. Defaulting to Safe."
                 }
 
-            # Modern structured generation call with mandatory JSON Schema response configuration
-            response = client.models.generate_content(
-                model=self.model_name,
-                contents=user_content,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    response_mime_type="application/json",
-                    temperature=0.1, # Keep decisions deterministic and highly reliable
-                    max_output_tokens=150
-                )
+            response_text = await gemini_api_manager.generate_content(
+                user_content, system_instruction=system_instruction, temperature=0.1,
+                max_output_tokens=150, priority=Priority.HIGH,
             )
+            if not response_text:
+                raise RuntimeError("Gemini returned no decision")
             
             if sys_state:
                 sys_state.gemini_api_calls += 1
                 self.db.commit()
 
 
-            decision = json.loads(response.text)
+            decision = json.loads(response_text)
+            action = decision.get("recommended_action")
+            if action not in {"Safe", "Warn", "Delete", "Timeout", "Ban"}:
+                raise ValueError("invalid moderation action")
+            decision["confidence"] = max(0, min(100, int(decision.get("confidence", 0))))
             
             # 3. Update structural cache asynchronously if marked safe or cleanly classifiable
             if decision.get("recommended_action") in ["Safe", "Delete", "Ban"]:
@@ -105,5 +98,5 @@ class GeminiModeratorEngine:
                 "severity": "Low",
                 "confidence": 100,
                 "recommended_action": "Safe",
-                "reason": f"AI Engine execution failure gracefully bypassed: {str(e)}"
+                "reason": "AI Engine unavailable; no automated action taken."
             }
