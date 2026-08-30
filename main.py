@@ -37,7 +37,6 @@ from app.database.models import (
     CustomCommand, VIPGuest, Coin, WaitingListEntry, ChatLog,
     TeamMember, TeamInvite, AuditLog
 )
-from app.dashboard.auth import router as auth_router
 
 # --- IMPORTING AI GLOBALS ---
 from app.bot.youtube_chat import (
@@ -90,30 +89,35 @@ templates = Jinja2Templates(directory="templates")
 # ---------------------------------------------------------
 # SECURITY: ROLE-BASED ACCESS CONTROL (RBAC)
 # ---------------------------------------------------------
+def ensure_direct_dashboard_identity(request: Request, db: Session) -> tuple[User, Streamer]:
+    """Initialize the local dashboard workspace without a login flow."""
+    user = db.query(User).filter_by(youtube_id="dashboard-direct-entry").first()
+    if not user:
+        user = User(youtube_id="dashboard-direct-entry", username="Dashboard")
+        db.add(user); db.flush()
+    streamer = db.query(Streamer).order_by(Streamer.id.asc()).first()
+    if not streamer:
+        streamer = Streamer(youtube_channel_id=None, channel_name="Dashboard Channel", is_active=False)
+        db.add(streamer); db.flush()
+    db.commit()
+    request.session.update({"user_id": user.id, "streamer_id": request.session.get("streamer_id") or streamer.id, "streamer_name": streamer.channel_name})
+    return user, streamer
+
+
 def require_role(allowed_roles: list):
     async def role_checker(request: Request, db: Session = Depends(get_db)):
         active_dashboard_id = request.session.get("streamer_id")
         if not active_dashboard_id:
-            raise HTTPException(status_code=303, headers={"Location": "/login"})
+            _, streamer = ensure_direct_dashboard_identity(request, db)
+            active_dashboard_id = streamer.id
 
         logged_in_user_id = request.session.get("user_id")
         current_role = None
 
         streamer = db.query(Streamer).filter(Streamer.id == active_dashboard_id).first()
         
-        if request.session.get("is_admin") and logged_in_user_id and streamer:
+        if logged_in_user_id and streamer:
             current_role = "owner"
-        elif logged_in_user_id and streamer:
-            user = db.query(User).filter(User.id == logged_in_user_id).first()
-            if user and streamer.youtube_channel_id == user.youtube_id:
-                current_role = "owner"
-            else:
-                membership = db.query(TeamMember).filter(
-                    TeamMember.streamer_id == active_dashboard_id,
-                    TeamMember.user_id == logged_in_user_id
-                ).first()
-                if membership:
-                    current_role = membership.role
 
         if not current_role or current_role not in allowed_roles:
             try:
@@ -170,8 +174,8 @@ def subscribe_websub(channel_uc_id: str, mode: str = "subscribe") -> bool:
 @app.get("/switch-workspace/{target_id}")
 async def switch_workspace(target_id: int, request: Request, db: Session = Depends(get_db)):
     try:
-        if not request.session.get("is_admin"):
-            return RedirectResponse(url="/login", status_code=303)
+        if not request.session.get("user_id"):
+            ensure_direct_dashboard_identity(request, db)
             
         streamer = db.query(Streamer).filter(Streamer.id == target_id).first()
         if not streamer:
@@ -191,17 +195,14 @@ async def switch_workspace(target_id: int, request: Request, db: Session = Depen
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     try:
-        if not request.session.get("is_admin"):
-            return RedirectResponse(url="/login", status_code=303)
-
         logged_in_user_id = request.session.get("user_id")
         user = db.query(User).filter(User.id == logged_in_user_id).first()
         if not user:
-            request.session.clear(); return RedirectResponse(url="/login", status_code=303)
+            user, _ = ensure_direct_dashboard_identity(request, db)
 
         my_streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
         if not my_streamer:
-            request.session.clear(); return RedirectResponse(url="/login", status_code=303)
+            _, my_streamer = ensure_direct_dashboard_identity(request, db)
 
         active_streamer_id = request.session.get("streamer_id")
         if not active_streamer_id:
@@ -354,8 +355,8 @@ async def accept_team_invite(invite_code: str, request: Request, db: Session = D
                     request.session["user_id"] = u.id
 
         if not logged_in_user_id:
-            request.session["pending_invite"] = invite_code
-            return RedirectResponse(url="/login", status_code=303)
+            user, _ = ensure_direct_dashboard_identity(request, db)
+            logged_in_user_id = user.id
             
         invite = db.query(TeamInvite).filter(TeamInvite.invite_code == invite_code, TeamInvite.is_used == False).first()
         
@@ -684,7 +685,6 @@ async def receive_youtube_webhook(request: Request, db: Session = Depends(get_db
         return Response(status_code=200)
 
 
-app.include_router(auth_router)
 app.include_router(economy_router)
 
 running_tasks = []

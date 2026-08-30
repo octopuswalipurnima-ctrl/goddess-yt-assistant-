@@ -12,8 +12,6 @@ class Config:
     DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
     DISCORD_LOG_CHANNEL_ID = os.getenv("DISCORD_LOG_CHANNEL_ID")
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./goddess.db")
-    ADMIN_USERNAME = os.getenv("ADMIN_USERNAME")
-    ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH")
     SESSION_SECRET = os.getenv("SESSION_SECRET")
     SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", "true").lower() == "true"
     GEMINI_PRIMARY_MODEL = os.getenv("GEMINI_PRIMARY_MODEL", "gemini-2.5-flash")
@@ -44,7 +42,6 @@ class Config:
         cls.load_multi_keys()
         warnings = []
         if not cls.SESSION_SECRET: warnings.append("SESSION_SECRET is not set; dashboard sessions use a generated unsafe fallback.")
-        if not cls.ADMIN_USERNAME or not cls.ADMIN_PASSWORD_HASH: warnings.append("Dashboard username/password hash is not configured; login is disabled.")
         if not cls.GEMINI_API_KEYS: warnings.append("No Gemini key configured; AI moderation/co-host are disabled.")
         if cls.OPENROUTER_ENABLED and (not cls.OPENROUTER_API_KEY or not cls.OPENROUTER_MODEL): warnings.append("OpenRouter fallback is enabled but incomplete; it will be skipped.")
         if not cls.DISCORD_BOT_TOKEN: warnings.append("No Discord token configured; Discord event delivery is disabled.")

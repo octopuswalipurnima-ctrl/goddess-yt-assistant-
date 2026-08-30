@@ -70,8 +70,8 @@
         input:checked + .slider { background-color: var(--success); }
         input:checked + .slider:before { transform: translateX(20px); }
 
-        .login-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; text-align: center; }
-        .login-wrapper h1 { font-size: 3.5em; font-weight: 700; background: linear-gradient(to right, #fff, #a1a1aa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
+        .entry-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; text-align: center; }
+        .entry-wrapper h1 { font-size: 3.5em; font-weight: 700; background: linear-gradient(to right, #fff, #a1a1aa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
 
         .app-container { display: flex; height: 100vh; overflow: hidden; }
         
@@ -127,7 +127,7 @@
 
     {% if not streamer_name %}
     <!-- LOGGED OUT VIEW -->
-    <div class="login-wrapper">
+    <div class="entry-wrapper">
         <div class="glass-panel" style="max-width: 500px; width: 100%; padding: 40px;">
             <i class="fa-solid fa-crown" style="font-size: 3em; color: var(--accent-primary); margin-bottom: 20px;"></i>
             <h1>Goddess AI</h1>
@@ -137,7 +137,7 @@
                 <div class="alert-box alert-error" style="justify-content: center;"><i class="fa-solid fa-shield-halved"></i> Access Denied. Insufficient Role Permissions.</div>
             {% endif %}
 
-            <a href="/login" class="btn btn-primary" style="width: 100%; font-size: 1.2em; padding: 16px;"><i class="fa-solid fa-right-to-bracket"></i> Sign in</a>
+            <a href="/" class="btn btn-primary" style="width: 100%; font-size: 1.2em; padding: 16px;">Open dashboard</a>
         </div>
     </div>
     
@@ -187,7 +187,6 @@
                         <div style="font-size: 0.8em; color: var(--success);"><span class="status-pulse"></span>System Online</div>
                     </div>
                 </div>
-                <a href="/logout" class="btn btn-danger" style="width: 100%; font-size: 0.9em;"><i class="fa-solid fa-right-from-bracket"></i> Sign Out</a>
             </div>
         </aside>
 
@@ -275,7 +274,7 @@
 
                             <div class="glass-panel">
                                 <h3><i class="fa-brands fa-youtube" style="color: #f43f5e;"></i> WebSub / YouTube Channel</h3>
-                                <p>Enter the channel's UC-style YouTube Channel ID. This configures live-stream notifications without Google dashboard login.</p>
+                                <p>Enter the channel's UC-style YouTube Channel ID. This configures live-stream notifications from the direct-entry dashboard.</p>
                                 <form action="/api/websub/channel" method="POST" style="display:flex; gap:8px; margin-bottom:12px;">
                                     <input type="text" name="youtube_channel_id" value="{{ settings.youtube_channel_id or '' }}" placeholder="UCxxxxxxxxxxxxxxxxxxxxxx" required>
                                     <button class="btn btn-primary" type="submit">Save Channel</button>
