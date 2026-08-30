@@ -38,7 +38,6 @@ from app.database.models import (
     TeamMember, TeamInvite, AuditLog
 )
 from app.dashboard.auth import router as auth_router
-from app.dashboard.routes import router as dashboard_router
 
 # --- IMPORTING AI GLOBALS ---
 from app.bot.youtube_chat import (
@@ -73,7 +72,7 @@ app.add_middleware(
     SessionMiddleware, 
     secret_key=Config.SESSION_SECRET or secrets.token_urlsafe(32),
     max_age=3600 * 24 * 7,
-    https_only=False,  
+    https_only=Config.SESSION_HTTPS_ONLY,
     same_site="lax" 
 )
 
@@ -102,7 +101,9 @@ def require_role(allowed_roles: list):
 
         streamer = db.query(Streamer).filter(Streamer.id == active_dashboard_id).first()
         
-        if logged_in_user_id and streamer:
+        if request.session.get("is_admin") and logged_in_user_id and streamer:
+            current_role = "owner"
+        elif logged_in_user_id and streamer:
             user = db.query(User).filter(User.id == logged_in_user_id).first()
             if user and streamer.youtube_channel_id == user.youtube_id:
                 current_role = "owner"
@@ -135,20 +136,32 @@ def require_role(allowed_roles: list):
 # ---------------------------------------------------------
 # WEBSUB AUTO-SUBSCRIBER HELPER
 # ---------------------------------------------------------
-def subscribe_websub(channel_uc_id: str):
+YOUTUBE_CHANNEL_ID_RE = re.compile(r"^UC[a-zA-Z0-9_-]{22}$")
+
+def websub_topic(channel_uc_id: str) -> str:
+    return f"https://www.youtube.com/xml/feeds/videos.xml?channel_id={channel_uc_id}"
+
+def subscribe_websub(channel_uc_id: str, mode: str = "subscribe") -> bool:
+    """Use the existing WebSub hub; callers never block dashboard responses."""
+    if not YOUTUBE_CHANNEL_ID_RE.fullmatch(channel_uc_id) or mode not in {"subscribe", "unsubscribe"}:
+        return False
+    base_url = os.environ.get("BASE_URL", "").rstrip("/")
+    if not base_url:
+        logger.warning("WebSub request skipped: BASE_URL is not configured")
+        return False
     def _sub():
         hub_url = "https://pubsubhubbub.appspot.com/subscribe"
-        callback_url = "https://goddess-yt-assistant-production-b575.up.railway.app/api/youtube-webhook"
-        topic_url = f"https://www.youtube.com/xml/feeds/videos.xml?channel_id={channel_uc_id}"
-        data = {"hub.callback": callback_url, "hub.topic": topic_url, "hub.verify": "async", "hub.mode": "subscribe"}
+        callback_url = f"{base_url}/api/youtube-webhook"
+        data = {"hub.callback": callback_url, "hub.topic": websub_topic(channel_uc_id), "hub.verify": "async", "hub.mode": mode}
         encoded_data = urllib.parse.urlencode(data).encode("utf-8")
         req = urllib.request.Request(hub_url, data=encoded_data, method="POST")
         try:
             with urllib.request.urlopen(req) as resp:
-                logger.info(f"[WEBSUB AUTO-SUB] Subscribed {channel_uc_id} with status {resp.status}")
+                logger.info("WebSub %s request accepted for configured channel (status %s)", mode, resp.status)
         except Exception as e:
-            logger.error(f"[WEBSUB AUTO-SUB FAILED] {channel_uc_id}: {e}")
-    asyncio.to_thread(_sub)
+            logger.error("WebSub %s request failed: %s", mode, type(e).__name__)
+    asyncio.create_task(asyncio.to_thread(_sub))
+    return True
 
 
 # ---------------------------------------------------------
@@ -157,24 +170,14 @@ def subscribe_websub(channel_uc_id: str):
 @app.get("/switch-workspace/{target_id}")
 async def switch_workspace(target_id: int, request: Request, db: Session = Depends(get_db)):
     try:
-        logged_in_user_id = request.session.get("user_id")
-        if not logged_in_user_id:
-            return RedirectResponse(url="/login", status_code=303)
-            
-        user = db.query(User).filter(User.id == logged_in_user_id).first()
-        if not user:
+        if not request.session.get("is_admin"):
             return RedirectResponse(url="/login", status_code=303)
             
         streamer = db.query(Streamer).filter(Streamer.id == target_id).first()
         if not streamer:
             return RedirectResponse(url="/?error=not_found", status_code=303)
             
-        if streamer.youtube_channel_id == user.youtube_id:
-            request.session["streamer_id"] = target_id
-        else:
-            member = db.query(TeamMember).filter(TeamMember.streamer_id == target_id, TeamMember.user_id == user.id).first()
-            if member:
-                request.session["streamer_id"] = target_id
+        request.session["streamer_id"] = target_id
                 
         return RedirectResponse(url="/", status_code=303)
     except Exception as e:
@@ -188,25 +191,17 @@ async def switch_workspace(target_id: int, request: Request, db: Session = Depen
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     try:
+        if not request.session.get("is_admin"):
+            return RedirectResponse(url="/login", status_code=303)
+
         logged_in_user_id = request.session.get("user_id")
-        
-        if not logged_in_user_id:
-            return templates.TemplateResponse(
-                request=request, name="index.html", 
-                context={"request": request, "streamer_name": None, "viewers": [], "settings": {}, "clips": [], "commands": [], "vips": [], "active_videos": [], "workspaces": []}
-            )
-            
         user = db.query(User).filter(User.id == logged_in_user_id).first()
         if not user:
-            request.session.clear()
-            return RedirectResponse(url="/", status_code=303)
+            request.session.clear(); return RedirectResponse(url="/login", status_code=303)
 
-        my_streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == user.youtube_id).first()
+        my_streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
         if not my_streamer:
-            my_streamer = Streamer(youtube_channel_id=user.youtube_id, channel_name=user.username)
-            db.add(my_streamer)
-            db.commit()
-            db.refresh(my_streamer)
+            request.session.clear(); return RedirectResponse(url="/login", status_code=303)
 
         active_streamer_id = request.session.get("streamer_id")
         if not active_streamer_id:
@@ -223,11 +218,7 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
             streamer.server_sync_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
             db.commit()
 
-        workspaces = [{"id": my_streamer.id, "name": f"{my_streamer.channel_name} (Personal)", "role": "owner"}]
-        memberships = db.query(TeamMember).filter(TeamMember.user_id == user.id).all()
-        for m in memberships:
-            if m.streamer_id != my_streamer.id:
-                workspaces.append({"id": m.streamer_id, "name": m.streamer.channel_name, "role": m.role})
+        workspaces = [{"id": my_streamer.id, "name": my_streamer.channel_name, "role": "owner"}]
 
         effective_id = streamer.effective_id
         viewers = db.query(User).join(XP).filter(XP.streamer_id == effective_id).all()
@@ -236,17 +227,14 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
         vips = db.query(VIPGuest).filter(VIPGuest.streamer_id == effective_id).all()
         
         ui_role = "viewer"
-        if streamer.youtube_channel_id == user.youtube_id:
-            ui_role = "owner"
-        else:
-            membership = db.query(TeamMember).filter(TeamMember.streamer_id == streamer.id, TeamMember.user_id == user.id).first()
-            if membership: ui_role = membership.role
+        ui_role = "owner"
         
         settings = {
             "is_active": getattr(streamer, 'is_active', False),
             "ai_cohost_enabled": streamer.ai_cohost_enabled,
             "giveaway_reminders_enabled": streamer.giveaway_reminders_enabled,
             "server_sync_code": streamer.server_sync_code,
+            "youtube_channel_id": streamer.youtube_channel_id,
             "is_discord_linked": bool(streamer.discord_guild_id),
             "manual_mod_mode": MANUAL_MOD_MODE.get(effective_id, True),
             "ai_observer_mode": AI_OBSERVER_MODE.get(effective_id, True),
@@ -263,6 +251,34 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"[DASHBOARD ERROR] {e}")
         return templates.TemplateResponse(request=request, name="index.html", context={"request": request, "streamer_name": None, "viewers": [], "settings": {}, "clips": [], "commands": [], "vips": [], "active_videos": [], "workspaces": []})
+
+
+@app.get("/dashboard")
+async def dashboard_alias():
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/api/websub/channel")
+async def save_websub_channel(request: Request, youtube_channel_id: str = Form(...), db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner"]))):
+    channel_id = youtube_channel_id.strip()
+    if not YOUTUBE_CHANNEL_ID_RE.fullmatch(channel_id):
+        return RedirectResponse(url="/?error=invalid_channel_id", status_code=303)
+    streamer = db.query(Streamer).filter_by(id=request.session.get("streamer_id")).first()
+    streamer.youtube_channel_id = channel_id
+    db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action="YOUTUBE_CHANNEL_SET", details=channel_id))
+    db.commit()
+    return RedirectResponse(url="/?success=channel_saved", status_code=303)
+
+
+@app.post("/api/websub/{action}")
+async def control_websub(action: str, request: Request, db: Session = Depends(get_db), auth: dict = Depends(require_role(["owner"]))):
+    streamer = db.query(Streamer).filter_by(id=request.session.get("streamer_id")).first()
+    mode = "subscribe" if action == "enable" else "unsubscribe" if action == "disable" else None
+    if not mode or not streamer or not streamer.youtube_channel_id or not subscribe_websub(streamer.youtube_channel_id, mode):
+        return RedirectResponse(url="/?error=websub_unavailable", status_code=303)
+    db.add(AuditLog(streamer_id=streamer.id, user_id=auth["user_id"], action=f"WEBSUB_{mode.upper()}", details=streamer.youtube_channel_id))
+    db.commit()
+    return RedirectResponse(url=f"/?success=websub_{mode}d", status_code=303)
 
 
 @app.post("/toggle-setting")
@@ -588,7 +604,8 @@ async def train_bot_moderation(
     dev_username: str = Form(...),
     input_type: str = Form(...), # "transcript", "written_condition", "video_data"
     content: str = Form(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: dict = Depends(require_role(["owner", "manager"]))
 ):
     """
     Dev-Only Route: Trains the AI moderation engine on transcripts or written conditions.
@@ -667,7 +684,6 @@ async def receive_youtube_webhook(request: Request, db: Session = Depends(get_db
         return Response(status_code=200)
 
 
-app.include_router(dashboard_router)
 app.include_router(auth_router)
 app.include_router(economy_router)
 

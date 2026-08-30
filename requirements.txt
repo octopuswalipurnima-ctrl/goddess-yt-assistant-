@@ -10,6 +10,6 @@ jinja2
 python-dotenv
 python-multipart
 itsdangerous
-authlib
+bcrypt>=4.2
 httpx
 

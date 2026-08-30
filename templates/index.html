@@ -137,7 +137,7 @@
                 <div class="alert-box alert-error" style="justify-content: center;"><i class="fa-solid fa-shield-halved"></i> Access Denied. Insufficient Role Permissions.</div>
             {% endif %}
 
-            <a href="/login" class="btn btn-primary" style="width: 100%; font-size: 1.2em; padding: 16px;"><i class="fa-brands fa-youtube"></i> Authenticate with YouTube</a>
+            <a href="/login" class="btn btn-primary" style="width: 100%; font-size: 1.2em; padding: 16px;"><i class="fa-solid fa-right-to-bracket"></i> Sign in</a>
         </div>
     </div>
     
@@ -222,6 +222,12 @@
                     <div class="alert-box alert-success"><i class="fa-solid fa-brain"></i> AI Successfully Trained! Applied {{ request.query_params.get('count') }} new rules to the Local Moderation Layer.</div>
                 {% elif request.query_params.get('error') == 'training_failed' %}
                     <div class="alert-box alert-error"><i class="fa-solid fa-triangle-exclamation"></i> Training Failed: {{ request.query_params.get('msg') }}</div>
+                {% elif request.query_params.get('success') == 'channel_saved' %}
+                    <div class="alert-box alert-success">YouTube channel ID saved.</div>
+                {% elif request.query_params.get('success') in ['websub_subscribed', 'websub_unsubscribed'] %}
+                    <div class="alert-box alert-success">WebSub request submitted.</div>
+                {% elif request.query_params.get('error') in ['invalid_channel_id', 'websub_unavailable'] %}
+                    <div class="alert-box alert-error">WebSub configuration could not be completed.</div>
                 {% endif %}
 
                 <!-- ========================================== -->
@@ -265,6 +271,19 @@
                                 {% else %}
                                     <div style="text-align: center; padding: 20px; color: var(--text-muted); border: 1px dashed #333; border-radius: 8px;">Bot is in Standby Mode.</div>
                                 {% endif %}
+                            </div>
+
+                            <div class="glass-panel">
+                                <h3><i class="fa-brands fa-youtube" style="color: #f43f5e;"></i> WebSub / YouTube Channel</h3>
+                                <p>Enter the channel's UC-style YouTube Channel ID. This configures live-stream notifications without Google dashboard login.</p>
+                                <form action="/api/websub/channel" method="POST" style="display:flex; gap:8px; margin-bottom:12px;">
+                                    <input type="text" name="youtube_channel_id" value="{{ settings.youtube_channel_id or '' }}" placeholder="UCxxxxxxxxxxxxxxxxxxxxxx" required>
+                                    <button class="btn btn-primary" type="submit">Save Channel</button>
+                                </form>
+                                <div style="display:flex; gap:8px;">
+                                    <form action="/api/websub/enable" method="POST"><button class="btn btn-success" type="submit">Subscribe / Enable WebSub</button></form>
+                                    <form action="/api/websub/disable" method="POST"><button class="btn btn-danger" type="submit">Disable WebSub</button></form>
+                                </div>
                             </div>
 
                             <div class="glass-panel">
@@ -428,7 +447,7 @@
                     <div class="grid-2">
                         <div class="glass-panel">
                             <h3><i class="fa-solid fa-user-plus" style="color: var(--info);"></i> Generate Magic Invite</h3>
-                            <p>Send a secure 24-hour link to a moderator so they can access your dashboard without needing your Google password.</p>
+                            <p>Send a secure 24-hour link to a moderator for dashboard access.</p>
                             
                             <form action="/api/team/generate-invite" method="POST" style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px;">
                                 <select name="role" required style="cursor: pointer;">
