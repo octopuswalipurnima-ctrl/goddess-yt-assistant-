@@ -54,6 +54,26 @@ class ChatCommandServiceTests(unittest.TestCase):
         balance = self.db.query(Coin).filter_by(user_id=viewer.id, streamer_id=self.stream_a.id).one().balance
         self.assertEqual(balance, 50)
 
+    def test_log_channel_is_moderator_only_persistent_and_idempotent(self):
+        moderator = ChatActor("mod", "Mod", True, False)
+        channel_id = "123456789012345678"
+        self.assertIn("Moderator permission", self.execute(f"!setlogchannel {channel_id}", self.viewer, "log-1"))
+        self.assertIn("linked successfully", self.execute(f"!setlogchannel {channel_id}", moderator, "log-2"))
+        self.assertEqual(self.stream_a.discord_log_channel_id, channel_id)
+        # A new session represents a process/service reinitialization reading
+        # the persisted Streamer setting rather than in-memory command state.
+        restarted_db = self.Session()
+        try:
+            response = ChatCommandService(restarted_db, self.stream_a.id, "log-3", moderator).execute("!getlogchannel")
+            self.assertIn(channel_id, response)
+        finally:
+            restarted_db.close()
+        self.assertIsNone(self.execute(f"!setlogchannel {channel_id}", moderator, "log-2"))
+
+    def test_log_channel_rejects_invalid_or_extra_arguments(self):
+        self.assertIn("could not be completed safely", self.execute("!setlogchannel invalid", self.owner, "invalid-1"))
+        self.assertIn("could not be completed safely", self.execute("!setlogchannel 123456789012345678 extra", self.owner, "invalid-2"))
+
 
 if __name__ == "__main__":
     unittest.main()

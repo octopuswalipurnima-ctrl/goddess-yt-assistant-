@@ -27,13 +27,14 @@ MAX_REPEAT_MINUTES = 1440
 PROTECTED_COMMANDS = {
     "!adduk", "!deluk", "!edituk", "!reptuk", "!join", "!next1v1",
     "!coins", "!rank", "!store", "!buy", "!addst", "!delst", "!editst",
-    "!chps",
+    "!chps", "!setlogchannel", "!getlogchannel",
 }
 MUTATING_COMMANDS = {
     "!adduk", "!deluk", "!edituk", "!reptuk", "!join", "!next1v1",
-    "!buy", "!addst", "!delst", "!editst",
+    "!buy", "!addst", "!delst", "!editst", "!setlogchannel",
 }
 COMMAND_RE = re.compile(r"^![a-z0-9][a-z0-9_-]{0,30}$")
+DISCORD_CHANNEL_ID_RE = re.compile(r"^[0-9]{17,20}$")
 
 
 @dataclass(frozen=True)
@@ -86,7 +87,7 @@ class ChatCommandService:
         if command in {"!adduk", "!deluk", "!edituk", "!reptuk", "!addst", "!delst", "!editst"}:
             if not self.actor.is_owner:
                 return "❌ Owner permission required."
-        elif command == "!next1v1" and not self.actor.is_moderator:
+        elif command in {"!next1v1", "!setlogchannel", "!getlogchannel"} and not self.actor.is_moderator:
             return "❌ Moderator permission required."
 
         if command == "!adduk": return self._add_command(args)
@@ -102,6 +103,8 @@ class ChatCommandService:
         if command == "!addst": return self._add_store(args)
         if command == "!delst": return self._delete_store(args)
         if command == "!editst": return self._edit_store(args)
+        if command == "!setlogchannel": return self._set_log_channel(args)
+        if command == "!getlogchannel": return self._get_log_channel()
         if command == "!chps": return "ℹ️ Channel-points rewards are not configured for this stream."
         # Moderation actions remain in YouTubeChatMonitor because they require its
         # bounded recent-message buffer and the existing YouTube moderation client.
@@ -259,3 +262,19 @@ class ChatCommandService:
         item.category, item.description, item.cost = parts[1], parts[2], cost
         self._audit("STORE_ITEM_UPDATED", item.name)
         return f"✅ {item.name} updated."
+
+    def _set_log_channel(self, args: str) -> str:
+        if not DISCORD_CHANNEL_ID_RE.fullmatch(args.strip()):
+            raise ValueError("invalid Discord channel id")
+        from app.database.models import Streamer
+        streamer = self.db.query(Streamer).filter_by(id=self.streamer_id).first()
+        if not streamer:
+            raise ValueError("streamer not found")
+        streamer.discord_log_channel_id = args.strip()
+        self._audit("DISCORD_LOG_CHANNEL_SET", args.strip())
+        return "✅ Log channel linked successfully."
+
+    def _get_log_channel(self) -> str:
+        from app.database.models import Streamer
+        streamer = self.db.query(Streamer).filter_by(id=self.streamer_id).first()
+        return f"ℹ️ Log channel: {streamer.discord_log_channel_id}." if streamer and streamer.discord_log_channel_id else "ℹ️ No log channel is configured."

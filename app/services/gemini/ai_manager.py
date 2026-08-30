@@ -3,6 +3,7 @@ import logging
 from typing import Optional
 from google import genai
 from google.genai import types
+import httpx
 
 from app.services.common.rate_limiter import TokenBucketRateLimiter
 from app.services.common.queue_manager import APIQueueManager, Priority
@@ -18,6 +19,33 @@ class GeminiAPIManager:
         self.fallback_model = Config.GEMINI_FALLBACK_MODEL
         self.rate_limiter = TokenBucketRateLimiter(capacity=5, refill_rate_per_second=0.5)
         self.queue_manager = APIQueueManager(max_concurrent=2)
+
+    @property
+    def openrouter_available(self) -> bool:
+        return bool(Config.OPENROUTER_ENABLED and Config.OPENROUTER_API_KEY and Config.OPENROUTER_MODEL)
+
+    async def _generate_openrouter(self, prompt: str, system_instruction: Optional[str], temperature: float, max_output_tokens: int) -> Optional[str]:
+        """OpenRouter is a sequential fallback; it never duplicates a healthy Gemini call."""
+        if not self.openrouter_available:
+            return None
+        messages = []
+        if system_instruction:
+            messages.append({"role": "system", "content": system_instruction})
+        messages.append({"role": "user", "content": prompt})
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(12.0, connect=4.0)) as client:
+                response = await client.post(
+                    f"{Config.OPENROUTER_BASE_URL.rstrip('/')}/chat/completions",
+                    headers={"Authorization": f"Bearer {Config.OPENROUTER_API_KEY}"},
+                    json={"model": Config.OPENROUTER_MODEL, "messages": messages, "temperature": temperature, "max_tokens": max_output_tokens},
+                )
+                response.raise_for_status()
+                content = response.json()["choices"][0]["message"]["content"]
+                return content.strip() if isinstance(content, str) and content.strip() else None
+        except Exception:
+            # Do not include response bodies or exceptions: either can contain sensitive data.
+            logger.warning("OpenRouter fallback unavailable")
+            return None
 
     async def generate_content(
         self, 
@@ -95,7 +123,10 @@ class GeminiAPIManager:
                 return None
 
         try:
-            return await self.queue_manager.execute(priority, _raw_generate)
+            result = await self.queue_manager.execute(priority, _raw_generate)
+            if result:
+                return result
+            return await self._generate_openrouter(prompt, system_instruction, temperature, max_output_tokens)
         except Exception as e:
             logger.error(f"[GEMINI QUEUE ERROR] {e}")
             return None

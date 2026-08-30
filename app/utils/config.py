@@ -16,6 +16,10 @@ class Config:
     SESSION_SECRET = os.getenv("SESSION_SECRET")
     GEMINI_PRIMARY_MODEL = os.getenv("GEMINI_PRIMARY_MODEL", "gemini-2.5-flash")
     GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash-lite")
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+    OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL")
+    OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    OPENROUTER_ENABLED = os.getenv("OPENROUTER_ENABLED", "false").lower() == "true"
     GEMINI_API_KEYS: list[str] = []
     YOUTUBE_API_KEYS: list[str] = []
 
@@ -39,6 +43,7 @@ class Config:
         warnings = []
         if not cls.SESSION_SECRET: warnings.append("SESSION_SECRET is not set; dashboard sessions use a generated unsafe fallback.")
         if not cls.GEMINI_API_KEYS: warnings.append("No Gemini key configured; AI moderation/co-host are disabled.")
+        if cls.OPENROUTER_ENABLED and (not cls.OPENROUTER_API_KEY or not cls.OPENROUTER_MODEL): warnings.append("OpenRouter fallback is enabled but incomplete; it will be skipped.")
         if not cls.DISCORD_BOT_TOKEN: warnings.append("No Discord token configured; Discord event delivery is disabled.")
         return warnings
 

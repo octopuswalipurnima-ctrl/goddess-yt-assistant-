@@ -246,7 +246,7 @@ class YouTubeChatMonitor:
 
                 streamer = db.query(Streamer).filter(Streamer.id == actual_id).first()
                 if streamer:
-                    discord_events.emit("YouTube support event", f"{event_type}: {author_name} {amount_str}"[:1800], streamer.discord_log_channel_id)
+                    discord_events.emit("YouTube support event", f"{event_type}: {author_name} {amount_str}"[:1800], streamer_id=streamer.id)
 
             if message: await self.send_message(message, live_chat_id)
         except Exception as e:

@@ -9,6 +9,8 @@ from app.database.connection import Base
 from app.database.models import SystemState
 from app.services.discord_events import DiscordEventLogger
 from app.services.emergency_stop import EmergencyStopController
+from app.services.gemini.ai_manager import GeminiAPIManager
+from app.utils.config import Config
 
 
 class EmergencyStopTests(unittest.TestCase):
@@ -36,6 +38,17 @@ class DiscordEventLoggerTests(unittest.IsolatedAsyncioTestCase):
         logger.emit("Moderation", "message")
         logger.configure(type("OfflineClient", (), {"is_ready": lambda self: False})())
         await asyncio.sleep(0)
+        await logger.close()
+
+    async def test_dynamic_streamer_channel_is_used(self):
+        channel = type("Channel", (), {"send": AsyncMock()})()
+        client = type("Client", (), {"is_ready": lambda self: True, "get_channel": lambda self, _: channel})()
+        logger = DiscordEventLogger()
+        logger._streamer_channel_id = lambda _: "123"
+        logger.configure(client)
+        logger.emit("Event", "body", streamer_id=7)
+        await asyncio.wait_for(logger.queue.join(), timeout=1)
+        channel.send.assert_awaited_once()
         await logger.close()
 
     async def test_sends_to_configured_channel(self):
@@ -74,3 +87,40 @@ class CohostTests(unittest.IsolatedAsyncioTestCase):
             answer = await AIBrain().generate_chat_reaction(["React"], [{"username": "viewer", "text": "wow"}])
         self.assertEqual(answer, "Nice clutch!")
         generate.assert_awaited_once()
+
+
+class OpenRouterFallbackTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.old = (Config.OPENROUTER_ENABLED, Config.OPENROUTER_API_KEY, Config.OPENROUTER_MODEL)
+        Config.OPENROUTER_ENABLED, Config.OPENROUTER_API_KEY, Config.OPENROUTER_MODEL = True, "test-secret", "provider/model"
+
+    def tearDown(self):
+        Config.OPENROUTER_ENABLED, Config.OPENROUTER_API_KEY, Config.OPENROUTER_MODEL = self.old
+
+    async def test_provider_initializes_and_missing_key_is_a_noop(self):
+        manager = GeminiAPIManager()
+        self.assertTrue(manager.openrouter_available)
+        Config.OPENROUTER_API_KEY = None
+        self.assertFalse(manager.openrouter_available)
+        self.assertIsNone(await manager._generate_openrouter("p", None, 0.1, 10))
+
+    async def test_fallback_runs_only_after_gemini_returns_no_result(self):
+        manager = GeminiAPIManager()
+        manager.queue_manager.execute = AsyncMock(return_value=None)
+        manager._generate_openrouter = AsyncMock(return_value="fallback response")
+        self.assertEqual(await manager.generate_content("prompt"), "fallback response")
+        manager._generate_openrouter.assert_awaited_once()
+
+    async def test_existing_gemini_result_skips_openrouter(self):
+        manager = GeminiAPIManager()
+        manager.queue_manager.execute = AsyncMock(return_value="gemini response")
+        manager._generate_openrouter = AsyncMock()
+        self.assertEqual(await manager.generate_content("prompt"), "gemini response")
+        manager._generate_openrouter.assert_not_awaited()
+
+    async def test_openrouter_error_is_safe_and_does_not_log_secret(self):
+        manager = GeminiAPIManager()
+        with patch("app.services.gemini.ai_manager.httpx.AsyncClient", side_effect=Exception("test-secret")):
+            with self.assertLogs("goddess_stream_manager", level="WARNING") as logs:
+                self.assertIsNone(await manager._generate_openrouter("prompt", None, 0.1, 10))
+        self.assertNotIn("test-secret", "\n".join(logs.output))
