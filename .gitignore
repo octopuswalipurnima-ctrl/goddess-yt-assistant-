@@ -2,6 +2,7 @@
 *.py[cod]
 __pycache__/
 .pytest_cache/
+.venv/
 goddess.db
 *.sqlite*
 server_log.txt
