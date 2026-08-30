@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 sqlalchemy
-psycopg[binary]
+psycopg2-binary>=2.9.10
 discord.py
 google-genai
 google-api-python-client
