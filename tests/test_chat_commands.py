@@ -26,11 +26,26 @@ class ChatCommandServiceTests(unittest.TestCase):
     def execute(self, message, actor=None, message_id="m1", stream=None):
         return ChatCommandService(self.db, (stream or self.stream_a).id, message_id, actor or self.owner).execute(message)
 
-    def test_custom_commands_are_owner_only_and_stream_scoped(self):
+    def test_custom_commands_are_owner_or_moderator_and_stream_scoped(self):
+        moderator = ChatActor("mod", "Mod", True, False)
         self.assertEqual(self.execute("!adduk !discord Join us"), "✅ !discord created.")
         self.assertIn("Owner permission", self.execute("!edituk !discord | nope", self.viewer, "m2"))
         self.assertIn("not found", self.execute("!deluk !discord", message_id="m3", stream=self.stream_b))
-        self.assertEqual(self.execute("!edituk !discord | New text", message_id="m4"), "✅ !discord updated.")
+        self.assertEqual(self.execute("!edituk !discord | New text", moderator, "m4"), "✅ !discord updated.")
+
+    def test_moderator_can_manage_existing_repeat_and_store_commands(self):
+        moderator = ChatActor("mod", "Mod", True, False)
+        self.assertEqual(self.execute("!adduk !rules Be kind", moderator, "mod-command-add"), "✅ !rules created.")
+        self.assertEqual(self.execute("!reptuk !rules 5", moderator, "mod-command-repeat"), "✅ !rules repeats every 5 minute(s).")
+        self.assertEqual(self.execute("!deluk !rules", moderator, "mod-command-delete"), "✅ !rules deleted.")
+        self.assertEqual(self.execute("!addst VIP | Role | Very important player | 50", moderator, "mod-store-add"), "✅ VIP added to the store.")
+        self.assertEqual(self.execute("!editst VIP | Role | Updated reward | 75", moderator, "mod-store-edit"), "✅ VIP updated.")
+        self.assertEqual(self.execute("!delst VIP", moderator, "mod-store-delete"), "✅ VIP disabled.")
+
+    def test_viewer_cannot_manage_commands_repeat_or_store(self):
+        self.assertIn("Owner permission", self.execute("!adduk !rules Be kind", self.viewer, "viewer-command-add"))
+        self.assertIn("Owner permission", self.execute("!reptuk !rules 5", self.viewer, "viewer-command-repeat"))
+        self.assertIn("Owner permission", self.execute("!addst VIP | Role | Very important player | 50", self.viewer, "viewer-store-add"))
 
     def test_duplicate_mutation_is_not_replayed(self):
         self.assertEqual(self.execute("!adduk !rules Be kind", message_id="yt-1"), "✅ !rules created.")

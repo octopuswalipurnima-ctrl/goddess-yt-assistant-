@@ -93,7 +93,7 @@ class ChatCommandService:
 
     def _dispatch(self, command: str, args: str) -> Optional[str]:
         if command in {"!adduk", "!deluk", "!edituk", "!reptuk", "!addst", "!delst", "!editst"}:
-            if not self.actor.is_owner:
+            if not (self.actor.is_owner or self.actor.is_moderator):
                 return "❌ Owner permission required."
         elif command in {"!next1v1", "!setlogchannel", "!getlogchannel", *PERSONALITY_COMMANDS} and not self.actor.is_moderator:
             return "❌ Moderator permission required."
