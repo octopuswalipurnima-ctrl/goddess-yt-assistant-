@@ -70,42 +70,69 @@ class YouTubeAPIManager:
         Fetches channelId and activeLiveChatId for a video.
         CACHED: Results are stored in memory for 2 hours to avoid wasting quota on duplicates.
         """
+        broadcast = await self.resolve_live_broadcast(video_id)
+        if not broadcast:
+            return None, None
+        return broadcast["channel_id"], broadcast["chat_id"]
+
+    def invalidate_live_video(self, video_id: str) -> None:
+        """A WebSub update must be checked against fresh live state."""
+        global_cache.delete(f"yt_video_chat:{video_id}")
+
+    async def resolve_live_broadcast(self, video_id: str, expected_channel_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Verify a WebSub video is live and resolve its active live-chat id."""
         cache_key = f"yt_video_chat:{video_id}"
         cached_result = global_cache.get(cache_key)
         if cached_result:
-            return cached_result["channel_id"], cached_result["chat_id"]
+            if expected_channel_id and cached_result.get("channel_id") != expected_channel_id:
+                return None
+            return cached_result
         if not self._quota_available():
-            return None, None
+            return None
 
         async def _raw_fetch():
             await self.rate_limiter.acquire(1)
             service = self._get_service()
-            res = service.videos().list(part="snippet,liveStreamingDetails", id=video_id).execute()
-            items = res.get("items", [])
-            if not items:
-                return None, None
-            
-            item = items[0]
-            channel_id = item["snippet"]["channelId"]
-            chat_id = item.get("liveStreamingDetails", {}).get("activeLiveChatId")
-            return channel_id, chat_id, {
-                "channel_name": item["snippet"].get("channelTitle"),
-                "stream_title": item["snippet"].get("title"),
-            }
-
-        async def _fetch_and_cache():
-            channel_id, chat_id, metadata = await self.queue_manager.execute(Priority.NORMAL, _raw_fetch)
-            if channel_id and chat_id:
-                # Cache valid stream IDs for 2 hours (7200 seconds)
-                global_cache.set(cache_key, {"channel_id": channel_id, "chat_id": chat_id, **metadata}, ttl_seconds=7200)
-            return channel_id, chat_id
+            return service.videos().list(
+                part="snippet,liveStreamingDetails,status", id=video_id
+            ).execute()
 
         try:
-            return await self._deduplicated(cache_key, _fetch_and_cache)
-        except Exception as e:
-            self._mark_quota_exhausted(e)
-            logger.error(f"[YT API MANAGER] Error fetching stream info for video {video_id}: {e}")
-            return None, None
+            response = await self._deduplicated(cache_key, lambda: self.queue_manager.execute(Priority.NORMAL, _raw_fetch))
+            items = response.get("items", [])
+            if not items:
+                return None
+            item = items[0]
+            snippet = item.get("snippet", {})
+            channel_id = snippet.get("channelId")
+            details = item.get("liveStreamingDetails", {})
+            chat_id = details.get("activeLiveChatId")
+            # A feed entry can represent uploads, scheduled streams, edits, or
+            # an ended stream. Only an active broadcast with a live chat starts
+            # the existing chat-monitor workflow.
+            is_live = (
+                bool(details.get("actualStartTime"))
+                and not details.get("actualEndTime")
+                and snippet.get("liveBroadcastContent") == "live"
+                and bool(chat_id)
+            )
+            if not is_live or (expected_channel_id and channel_id != expected_channel_id):
+                return None
+            broadcast = {
+                "video_id": video_id,
+                "channel_id": channel_id,
+                "chat_id": chat_id,
+                "channel_name": snippet.get("channelTitle"),
+                "stream_title": snippet.get("title"),
+            }
+            # The same video id cannot become a new stream, so this cache can
+            # safely be reused by the monitor immediately after WebSub.
+            global_cache.set(cache_key, broadcast, ttl_seconds=7200)
+            return broadcast
+        except Exception as exc:
+            self._mark_quota_exhausted(exc)
+            logger.error("[YT API MANAGER] Live broadcast resolution failed type=%s", type(exc).__name__)
+            return None
 
     def stream_metadata(self, video_id: str) -> Dict[str, Any]:
         """Return metadata captured with the current video, never another stream."""

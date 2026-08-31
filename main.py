@@ -50,6 +50,8 @@ from app.api.creator_economy import router as economy_router
 from app.utils.config import Config
 from app.services.emergency_stop import emergency_stop
 from app.services.discord_events import discord_events
+from app.services.youtube.yt_api_manager import yt_api_manager
+from app.services.youtube.monitored_channels import ensure_monitored_channels
 
 # Import the new AI Trainer Service
 from app.services.ai_trainer import trainer_service
@@ -134,6 +136,7 @@ def require_role(allowed_roles: list):
 # WEBSUB AUTO-SUBSCRIBER HELPER
 # ---------------------------------------------------------
 YOUTUBE_CHANNEL_ID_RE = re.compile(r"^UC[a-zA-Z0-9_-]{22}$")
+websub_start_lock = asyncio.Lock()
 
 def websub_topic(channel_uc_id: str) -> str:
     return f"https://www.youtube.com/xml/feeds/videos.xml?channel_id={channel_uc_id}"
@@ -642,23 +645,50 @@ async def receive_youtube_webhook(request: Request, db: Session = Depends(get_db
         namespaces = {'atom': 'http://www.w3.org/2005/Atom', 'yt': 'http://www.youtube.com/xml/schemas/2015'}
 
         entry = root.find('atom:entry', namespaces)
-        if entry is not None:
-            video_id_element = entry.find('yt:videoId', namespaces)
-            channel_id_element = entry.find('yt:channelId', namespaces)
-            
-            if video_id_element is not None:
-                video_id = video_id_element.text
-                streamer_id = None
-                if channel_id_element is not None:
-                    channel_id = channel_id_element.text
-                    streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == channel_id).first()
-                    if streamer:
-                        streamer_id = streamer.effective_id
-                        # Auto-wake the bot for this channel!
-                        streamer.is_active = True
-                        db.commit()
-                        logger.info(f"⚡ [AUTO-POWER ON] Activated bot for channel {streamer.channel_name} via WebSub!")
-                DETECTED_VIDEOS[video_id] = streamer_id
+        if entry is None:
+            logger.info("[WEBSUB] Feed notification contains no entry; ignored")
+            return Response(status_code=204)
+
+        video_id_element = entry.find('yt:videoId', namespaces)
+        channel_id_element = entry.find('yt:channelId', namespaces)
+        video_id = video_id_element.text if video_id_element is not None else None
+        channel_id = channel_id_element.text if channel_id_element is not None else None
+        if not video_id or not channel_id:
+            logger.warning("[WEBSUB] Malformed notification missing video or channel id")
+            return Response(status_code=204)
+
+        streamer = db.query(Streamer).filter(Streamer.youtube_channel_id == channel_id).first()
+        if not streamer:
+            logger.info("[WEBSUB] Ignored unmonitored channel notification")
+            return Response(status_code=204)
+
+        logger.info("[WEBSUB] Matched monitored channel; verifying live broadcast video=%s", video_id)
+        yt_api_manager.invalidate_live_video(video_id)
+        broadcast = await yt_api_manager.resolve_live_broadcast(video_id, expected_channel_id=channel_id)
+        if not broadcast:
+            # An end/update notification should release an existing monitor;
+            # scheduled/non-live notifications are harmless no-ops.
+            DISCONNECT_QUEUE.add(video_id)
+            logger.info("[WEBSUB] No active live chat for video=%s; no session started", video_id)
+            return Response(status_code=204)
+
+        async with websub_start_lock:
+            monitor = getattr(app.state, "yt_monitor", None)
+            if video_id in DETECTED_VIDEOS or (monitor and video_id in monitor.active_streams):
+                logger.info("[WEBSUB] Duplicate delivery ignored for live video=%s", video_id)
+                return Response(status_code=204)
+            streamer.is_active = True
+            db.add(AuditLog(
+                streamer_id=streamer.id,
+                user_id=None,
+                action="WEBSUB_LIVE_SESSION_QUEUED",
+                details=video_id,
+            ))
+            db.commit()
+            # The existing YouTubeChatMonitor consumes this map, resolves the
+            # cached liveChatId, and owns all chat/moderation behavior.
+            DETECTED_VIDEOS[video_id] = streamer.effective_id
+            logger.info("[WEBSUB] Live broadcast queued video=%s chat=%s", video_id, broadcast["chat_id"])
         return Response(status_code=204) 
     except Exception as e:
         logger.error(f"[WEBSUB WEBHOOK ERROR] {e}")
@@ -672,8 +702,16 @@ running_tasks = []
 @app.on_event("startup")
 async def startup_event():
     init_db()
+    db = SessionLocal()
+    try:
+        monitored_streamers = ensure_monitored_channels(db)
+    finally:
+        db.close()
+    for streamer in monitored_streamers:
+        subscribe_websub(streamer.youtube_channel_id)
     start_scheduler()
     yt_monitor = YouTubeChatMonitor()
+    app.state.yt_monitor = yt_monitor
     running_tasks.extend([
         asyncio.create_task(yt_monitor.run()),
         asyncio.create_task(start_discord_bot()),

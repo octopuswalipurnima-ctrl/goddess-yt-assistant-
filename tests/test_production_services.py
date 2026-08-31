@@ -140,6 +140,24 @@ class CohostTests(unittest.IsolatedAsyncioTestCase):
         paused = await manager.get_live_chat_messages("live-chat")
         self.assertTrue(paused["quota_exhausted"])
 
+    async def test_live_resolution_requires_active_chat_and_expected_channel(self):
+        from app.services.youtube.yt_api_manager import YouTubeAPIManager
+        manager = YouTubeAPIManager()
+        manager.queue_manager.execute = AsyncMock(return_value={
+            "items": [{"snippet": {"channelId": "UC-live", "liveBroadcastContent": "live"},
+                       "liveStreamingDetails": {"actualStartTime": "now", "activeLiveChatId": "chat-live"}}]
+        })
+        live = await manager.resolve_live_broadcast("video-live", expected_channel_id="UC-live")
+        self.assertEqual(live["chat_id"], "chat-live")
+        self.assertIsNone(await manager.resolve_live_broadcast("video-live", expected_channel_id="UC-other"))
+
+        manager.invalidate_live_video("video-offline")
+        manager.queue_manager.execute = AsyncMock(return_value={
+            "items": [{"snippet": {"channelId": "UC-live", "liveBroadcastContent": "upcoming"},
+                       "liveStreamingDetails": {"activeLiveChatId": "chat-live"}}]
+        })
+        self.assertIsNone(await manager.resolve_live_broadcast("video-offline", expected_channel_id="UC-live"))
+
     def test_youtube_usage_cap_resets_for_a_new_utc_day(self):
         from app.bot.youtube_chat import YouTubeChatMonitor
         state = SystemState(youtube_api_calls=99)

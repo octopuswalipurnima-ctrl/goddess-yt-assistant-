@@ -11,6 +11,7 @@ from app.database.connection import SessionLocal
 from app.database.models import User, Coin, XP, CustomCommand, Streamer, VIPGuest, WaitingListEntry
 from app.ai.generator import AIBrain
 from app.services.youtube.yt_api_manager import yt_api_manager
+from app.services.youtube.monitored_channels import MONITORED_CHANNEL_IDS
 from app.bot.youtube_chat import DETECTED_VIDEOS
 
 logger = logging.getLogger("goddess_stream_manager")
@@ -158,7 +159,7 @@ async def check_goddess_birthday_wish():
                 db = SessionLocal()
                 try:
                     # Find Goddess's internal DB ID using her exact YouTube Channel ID
-                    goddess = db.query(Streamer).filter(Streamer.youtube_channel_id == "UCGH_osSgL2FCsBYe6XMxlSQ").first()
+                    goddess = db.query(Streamer).filter(Streamer.youtube_channel_id == MONITORED_CHANNEL_IDS[0]).first()
                     
                     if goddess:
                         for video_id, streamer_id in list(DETECTED_VIDEOS.items()):

@@ -2,7 +2,7 @@ import os
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -74,3 +74,73 @@ class DashboardDirectEntryTests(unittest.TestCase):
         self.assertTrue(YOUTUBE_CHANNEL_ID_RE.fullmatch(channel_id))
         self.assertFalse(YOUTUBE_CHANNEL_ID_RE.fullmatch(channel_id + " extra"))
         self.assertEqual(websub_topic(channel_id), f"https://www.youtube.com/xml/feeds/videos.xml?channel_id={channel_id}")
+
+    def test_monitored_channel_registration_is_idempotent(self):
+        from app.database.connection import SessionLocal
+        from app.database.models import AuditLog, Streamer
+        from app.services.youtube.monitored_channels import MONITORED_CHANNEL_IDS, ensure_monitored_channels
+        db = SessionLocal()
+        try:
+            ensure_monitored_channels(db)
+            ensure_monitored_channels(db)
+            self.assertEqual(
+                db.query(Streamer).filter(Streamer.youtube_channel_id.in_(MONITORED_CHANNEL_IDS)).count(),
+                len(MONITORED_CHANNEL_IDS),
+            )
+            self.assertEqual(
+                db.query(AuditLog).filter(AuditLog.action == "MONITORED_CHANNEL_REGISTERED").count(),
+                len(MONITORED_CHANNEL_IDS),
+            )
+        finally:
+            db.close()
+
+    def test_websub_live_channel_queues_existing_monitor_once(self):
+        import main
+        from app.bot.youtube_chat import DETECTED_VIDEOS, DISCONNECT_QUEUE
+        from app.database.connection import SessionLocal
+        from app.database.models import AuditLog, Streamer
+        from app.services.youtube.monitored_channels import MONITORED_CHANNEL_IDS, ensure_monitored_channels
+        channel_id, video_id = MONITORED_CHANNEL_IDS[0], "abcdefghijk"
+        xml = (
+            '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015">'
+            f'<entry><yt:videoId>{video_id}</yt:videoId><yt:channelId>{channel_id}</yt:channelId></entry></feed>'
+        )
+        db = SessionLocal()
+        try:
+            ensure_monitored_channels(db)
+            streamer = db.query(Streamer).filter_by(youtube_channel_id=channel_id).one()
+        finally:
+            db.close()
+        DETECTED_VIDEOS.clear(); DISCONNECT_QUEUE.clear()
+        resolved = {"video_id": video_id, "channel_id": channel_id, "chat_id": "live-chat", "channel_name": None, "stream_title": None}
+        with patch.object(main.yt_api_manager, "resolve_live_broadcast", new=AsyncMock(return_value=resolved)) as resolve, patch.object(main.yt_api_manager, "invalidate_live_video"):
+            self.assertEqual(self.client.post("/api/youtube-webhook", content=xml).status_code, 204)
+            self.assertEqual(self.client.post("/api/youtube-webhook", content=xml).status_code, 204)
+        self.assertEqual(DETECTED_VIDEOS[video_id], streamer.effective_id)
+        self.assertEqual(resolve.await_count, 2)
+        db = SessionLocal()
+        try:
+            self.assertEqual(db.query(AuditLog).filter_by(action="WEBSUB_LIVE_SESSION_QUEUED", details=video_id).count(), 1)
+        finally:
+            db.close()
+
+    def test_websub_ignores_unmonitored_or_not_live_notifications(self):
+        import main
+        from app.bot.youtube_chat import DETECTED_VIDEOS, DISCONNECT_QUEUE
+        from app.services.youtube.monitored_channels import MONITORED_CHANNEL_IDS
+        video_id = "klmnopqrst0"
+        xml = (
+            '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015">'
+            f'<entry><yt:videoId>{video_id}</yt:videoId><yt:channelId>UCxxxxxxxxxxxxxxxxxxxxxx</yt:channelId></entry></feed>'
+        )
+        DETECTED_VIDEOS.clear(); DISCONNECT_QUEUE.clear()
+        with patch.object(main.yt_api_manager, "resolve_live_broadcast", new=AsyncMock()) as resolve:
+            self.assertEqual(self.client.post("/api/youtube-webhook", content=xml).status_code, 204)
+        resolve.assert_not_awaited()
+
+        channel_id = MONITORED_CHANNEL_IDS[1]
+        xml = xml.replace("UCxxxxxxxxxxxxxxxxxxxxxx", channel_id)
+        with patch.object(main.yt_api_manager, "resolve_live_broadcast", new=AsyncMock(return_value=None)), patch.object(main.yt_api_manager, "invalidate_live_video"):
+            self.assertEqual(self.client.post("/api/youtube-webhook", content=xml).status_code, 204)
+        self.assertNotIn(video_id, DETECTED_VIDEOS)
+        self.assertIn(video_id, DISCONNECT_QUEUE)
