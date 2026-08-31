@@ -32,6 +32,7 @@ class Streamer(Base):
     # Kept on the streamer so one channel cannot alter another channel's AI
     # tone.  ``cohost`` preserves the previous production default.
     personality_mode = Column(String, nullable=False, default="cohost")
+    persona_enabled = Column(Boolean, nullable=False, default=False)
     giveaway_reminders_enabled = Column(Boolean, default=False)
     
     # Secure Sync Code and Routing IDs

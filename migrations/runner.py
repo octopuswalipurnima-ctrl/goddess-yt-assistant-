@@ -32,7 +32,7 @@ MIGRATIONS = [("20260830_01_emergency_stop", [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS channel_id VARCHAR",
     "UPDATE users SET channel_id = youtube_id WHERE channel_id IS NULL AND youtube_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_channel_id ON users (channel_id)",
-]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", [])]
+]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", [])]
 
 
 class MigrationError(RuntimeError):
@@ -171,6 +171,16 @@ def _reconcile_streamer_personality_mode(conn) -> None:
         conn.execute(text("ALTER TABLE streamers ADD COLUMN personality_mode VARCHAR NOT NULL DEFAULT 'cohost'"))
 
 
+def _reconcile_streamer_persona_enabled(conn) -> None:
+    """Add the optional persona switch without changing any existing mode."""
+    table_names = {name.lower() for name in inspect(conn).get_table_names()}
+    if "streamers" not in table_names:
+        return
+    columns = {column["name"].lower() for column in inspect(conn).get_columns("streamers")}
+    if "persona_enabled" not in columns:
+        conn.execute(text("ALTER TABLE streamers ADD COLUMN persona_enabled BOOLEAN NOT NULL DEFAULT FALSE"))
+
+
 def _bootstrap(target_engine: Engine) -> None:
     # Register mapped tables before create_all when the runner is invoked
     # directly (rather than through the application import path).
@@ -204,6 +214,8 @@ def _apply_migrations(target_engine: Engine, migrations: Iterable[tuple[str, lis
                     _reconcile_streamer_personality_mode(conn)
                 elif version == "20260831_05_audit_streamer_scope":
                     _reconcile_audit_streamer_scope(conn)
+                elif version == "20260831_06_streamer_persona_enabled":
+                    _reconcile_streamer_persona_enabled(conn)
                 for statement_index, statement in enumerate(statements, start=1):
                     try:
                         executable_statement = _statement_for_dialect(conn, statement)

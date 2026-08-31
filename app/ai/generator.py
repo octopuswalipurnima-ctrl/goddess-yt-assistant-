@@ -10,12 +10,11 @@ from app.services.common.queue_manager import Priority
 logger = logging.getLogger("goddess_stream_manager")
 
 PERSONALITY_RULES = {
-    "roast": "Playful, light teasing only; never cruel, hateful, or personal.",
-    "friendly_helpful": "Warm, concise, respectful, and directly helpful.",
-    "cohost": "Be a witty, supportive live-stream co-host; keep chat moving naturally.",
-    "hypemaker": "Use short, high-energy celebration and encouragement; do not spam.",
+    "roast": "tone=teasing,sarcastic; humor=high; roast=high; praise good plays; never cruel.",
+    "witty": "tone=clever,playful; humor=high; roast=low; conversational and light.",
+    "hype": "tone=energetic; energy=high; hype=high; supportive; short punchy reactions.",
+    "cohost": "tone=natural; energy=adaptive; support=high; conversational stream companion.",
 }
-DEFAULT_PERSONALITY_MODE = "cohost"
 
 class AIBrain:
     def __init__(self):
@@ -31,22 +30,12 @@ class AIBrain:
         )
 
     def system_instruction_for(self, stream_context: Dict[str, str] | None) -> str:
-        """Build one compact, provider-neutral live context block per request."""
+        """Add only the selected persona; no active persona preserves baseline AI."""
         context = stream_context or {}
-        mode = context.get("personality_mode", DEFAULT_PERSONALITY_MODE)
-        mode = mode if mode in PERSONALITY_RULES else DEFAULT_PERSONALITY_MODE
-        stream_name = context.get("channel_name") or "Unknown channel"
-        stream_handle = context.get("channel_handle") or "unknown"
-        title = context.get("stream_title") or "live stream"
-        bot_name = context.get("bot_name") or "YouTube bot"
-        bot_handle = context.get("bot_handle") or "unknown"
-        return (
-            f"{self.base_persona}\n"
-            f"CURRENT_STREAM channel={stream_name}; handle={stream_handle}; title={title}.\n"
-            f"BOT_IDENTITY name={bot_name}; handle={bot_handle}.\n"
-            f"MODE {mode}: {PERSONALITY_RULES[mode]}\n"
-            "Use one @ for any supplied viewer mention. Keep replies short."
-        )
+        mode = context.get("personality_mode")
+        if not context.get("persona_enabled") or mode not in PERSONALITY_RULES:
+            return self.base_persona
+        return f"{self.base_persona}\n[PERSONA={mode.upper()} | {PERSONALITY_RULES[mode]} | length=short]"
 
     async def generate_chat_reaction(self, direct_prompt: list, recent_messages: list, stream_context: Dict[str, str] | None = None) -> str:
         # Format context data for Gemini

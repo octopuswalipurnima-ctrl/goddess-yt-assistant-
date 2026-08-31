@@ -28,21 +28,22 @@ PROTECTED_COMMANDS = {
     "!adduk", "!deluk", "!edituk", "!reptuk", "!join", "!next1v1",
     "!coins", "!rank", "!store", "!buy", "!addst", "!delst", "!editst",
     "!chps", "!setlogchannel", "!getlogchannel",
-    "!ukrostmode", "!ukfelpfullmode", "!ukcohostmode", "!ukhypemaker",
+    "!ukrostmode", "!ukfelpfullmode", "!ukcohostmode", "!ukhypemaker", "!persona",
 }
 MUTATING_COMMANDS = {
     "!adduk", "!deluk", "!edituk", "!reptuk", "!join", "!next1v1",
     "!buy", "!addst", "!delst", "!editst", "!setlogchannel",
-    "!ukrostmode", "!ukfelpfullmode", "!ukcohostmode", "!ukhypemaker",
+    "!ukrostmode", "!ukfelpfullmode", "!ukcohostmode", "!ukhypemaker", "!persona",
 }
 COMMAND_RE = re.compile(r"^![a-z0-9][a-z0-9_-]{0,30}$")
 DISCORD_CHANNEL_ID_RE = re.compile(r"^[0-9]{17,20}$")
 PERSONALITY_COMMANDS = {
     "!ukrostmode": ("roast", "😈 Roast mode activated."),
-    "!ukfelpfullmode": ("friendly_helpful", "💙 Friendly & helpful mode activated."),
+    "!ukfelpfullmode": ("witty", "💙 Friendly & helpful mode activated."),
     "!ukcohostmode": ("cohost", "🎙️ Co-host mode activated."),
-    "!ukhypemaker": ("hypemaker", "🔥 Hype mode activated."),
+    "!ukhypemaker": ("hype", "🔥 Hype mode activated."),
 }
+PERSONA_MODES = {"roast", "witty", "hype", "cohost"}
 
 
 @dataclass(frozen=True)
@@ -95,7 +96,7 @@ class ChatCommandService:
         if command in {"!adduk", "!deluk", "!edituk", "!reptuk", "!addst", "!delst", "!editst"}:
             if not (self.actor.is_owner or self.actor.is_moderator):
                 return "❌ Owner permission required."
-        elif command in {"!next1v1", "!setlogchannel", "!getlogchannel", *PERSONALITY_COMMANDS} and not self.actor.is_moderator:
+        elif command in {"!next1v1", "!setlogchannel", "!getlogchannel", "!persona", *PERSONALITY_COMMANDS} and not self.actor.is_moderator:
             return "❌ Moderator permission required."
 
         if command == "!adduk": return self._add_command(args)
@@ -114,6 +115,7 @@ class ChatCommandService:
         if command == "!setlogchannel": return self._set_log_channel(args)
         if command == "!getlogchannel": return self._get_log_channel()
         if command in PERSONALITY_COMMANDS: return self._set_personality_mode(command)
+        if command == "!persona": return self._persona(args)
         if command == "!chps": return "ℹ️ Channel-points rewards are not configured for this stream."
         # Moderation actions remain in YouTubeChatMonitor because they require its
         # bounded recent-message buffer and the existing YouTube moderation client.
@@ -125,8 +127,28 @@ class ChatCommandService:
         if not streamer:
             raise ValueError("streamer not found")
         streamer.personality_mode = mode
+        streamer.persona_enabled = True
         self._audit("AI_PERSONALITY_CHANGED", mode)
         return acknowledgement
+
+    def _persona(self, args: str) -> str:
+        streamer = self.db.query(Streamer).filter(Streamer.id == self.streamer_id).first()
+        if not streamer:
+            raise ValueError("streamer not found")
+        mode = args.strip().lower()
+        if mode == "off":
+            streamer.persona_enabled = False
+            self._audit("AI_PERSONA_DISABLED")
+            return "✅ Persona mode disabled."
+        if mode == "view":
+            return f"ℹ️ Persona: {streamer.personality_mode if streamer.persona_enabled else 'off'}."
+        if mode == "list":
+            return "ℹ️ Personas: roast, witty, hype, cohost."
+        if mode not in PERSONA_MODES:
+            raise ValueError("invalid persona")
+        streamer.personality_mode, streamer.persona_enabled = mode, True
+        self._audit("AI_PERSONALITY_CHANGED", mode)
+        return f"✅ {mode.title()} persona activated."
 
     def _user(self) -> User:
         user = self.db.query(User).filter(User.youtube_id == self.actor.youtube_id).first()

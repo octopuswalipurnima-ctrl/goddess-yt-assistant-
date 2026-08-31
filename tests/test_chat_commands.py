@@ -47,6 +47,18 @@ class ChatCommandServiceTests(unittest.TestCase):
         self.assertIn("Owner permission", self.execute("!reptuk !rules 5", self.viewer, "viewer-command-repeat"))
         self.assertIn("Owner permission", self.execute("!addst VIP | Role | Very important player | 50", self.viewer, "viewer-store-add"))
 
+    def test_owner_or_moderator_can_manage_persona_but_viewer_cannot(self):
+        moderator = ChatActor("mod", "Mod", True, False)
+        self.assertEqual(self.execute("!persona roast", moderator, "persona-roast"), "✅ Roast persona activated.")
+        self.db.refresh(self.stream_a)
+        self.assertTrue(self.stream_a.persona_enabled)
+        self.assertEqual(self.stream_a.personality_mode, "roast")
+        self.assertEqual(self.execute("!persona view", moderator, "persona-view"), "ℹ️ Persona: roast.")
+        self.assertEqual(self.execute("!persona off", self.owner, "persona-off"), "✅ Persona mode disabled.")
+        self.db.refresh(self.stream_a)
+        self.assertFalse(self.stream_a.persona_enabled)
+        self.assertIn("Moderator permission", self.execute("!persona hype", self.viewer, "persona-viewer"))
+
     def test_duplicate_mutation_is_not_replayed(self):
         self.assertEqual(self.execute("!adduk !rules Be kind", message_id="yt-1"), "✅ !rules created.")
         self.assertIsNone(self.execute("!adduk !other Should not run", message_id="yt-1"))

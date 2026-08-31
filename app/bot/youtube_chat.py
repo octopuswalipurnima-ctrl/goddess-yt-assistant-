@@ -553,9 +553,15 @@ class YouTubeChatMonitor:
                         recent_logs = db.query(ChatLog).filter(ChatLog.streamer_id == effective_id).order_by(ChatLog.timestamp.desc()).limit(6).all()
                         context = [{"username": log.user.username, "text": log.message} for log in reversed(recent_logs)]
                         
-                        direct_prompt = [f"User '{username}' is directly talking to you. They said: '{message_text}'. Reply to them naturally and answer their question."]
+                        persona_context = None
+                        if getattr(streamer, "persona_enabled", False):
+                            persona_context = {"persona_enabled": True, "personality_mode": streamer.personality_mode}
+                            speaker_role = "stream owner" if is_owner else "moderator" if is_mod else "viewer"
+                            direct_prompt = [f"A {speaker_role} named '{username}' said: '{message_text}'. Reply naturally."]
+                        else:
+                            direct_prompt = [f"User '{username}' is directly talking to you. They said: '{message_text}'. Reply to them naturally and answer their question."]
                         
-                        reaction = await self.ai.generate_chat_reaction(direct_prompt, context)
+                        reaction = await self.ai.generate_chat_reaction(direct_prompt, context, persona_context)
                         
                         if reaction:
                             clean_reaction = reaction.replace(f"@{username}", "").strip()

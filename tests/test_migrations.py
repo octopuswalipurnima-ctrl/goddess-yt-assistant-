@@ -26,6 +26,7 @@ class MigrationRunnerTests(unittest.TestCase):
         self.assertIn("20260831_02_direct_dashboard_audit_actor", self.versions())
         self.assertIn("20260831_03_legacy_youtube_user_identity", self.versions())
         self.assertIn("20260831_05_audit_streamer_scope", self.versions())
+        self.assertIn("20260831_06_streamer_persona_enabled", self.versions())
         self.assertIn("emergency_reason", {column["name"] for column in inspect(self.engine).get_columns("system_state")})
         self.assertIn("youtube_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
         self.assertTrue({"first_seen", "last_seen"}.issubset({column["name"] for column in inspect(self.engine).get_columns("users")}))

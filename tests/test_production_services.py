@@ -79,6 +79,18 @@ class ModerationDecisionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CohostTests(unittest.IsolatedAsyncioTestCase):
+    def test_persona_context_is_optional_and_active_profile_is_compact(self):
+        from app.ai.generator import AIBrain
+        brain = AIBrain()
+        self.assertEqual(brain.system_instruction_for(None), brain.base_persona)
+        for mode in ("roast", "witty", "hype", "cohost"):
+            instruction = brain.system_instruction_for({"persona_enabled": True, "personality_mode": mode})
+            self.assertIn(f"PERSONA={mode.upper()}", instruction)
+            self.assertNotIn("PERSONA=ROAST", instruction) if mode != "roast" else None
+            self.assertNotIn("PERSONA=WITTY", instruction) if mode != "witty" else None
+            self.assertNotIn("PERSONA=HYPE", instruction) if mode != "hype" else None
+            self.assertNotIn("PERSONA=COHOST", instruction) if mode != "cohost" else None
+
     async def test_cohost_uses_shared_gemini_adapter(self):
         from app.ai.generator import AIBrain
         with patch("app.ai.generator.SessionLocal") as session_factory, patch("app.ai.generator.gemini_api_manager.generate_content", new=AsyncMock(return_value="Nice clutch!")) as generate:
