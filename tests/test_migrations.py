@@ -24,10 +24,12 @@ class MigrationRunnerTests(unittest.TestCase):
         self.assertIn("20260830_03_user_timestamps", self.versions())
         self.assertIn("20260831_01_user_channel_identity", self.versions())
         self.assertIn("20260831_02_direct_dashboard_audit_actor", self.versions())
+        self.assertIn("20260831_03_legacy_youtube_user_identity", self.versions())
         self.assertIn("emergency_reason", {column["name"] for column in inspect(self.engine).get_columns("system_state")})
         self.assertIn("youtube_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
         self.assertTrue({"first_seen", "last_seen"}.issubset({column["name"] for column in inspect(self.engine).get_columns("users")}))
         self.assertIn("channel_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
+        self.assertIn("youtube_user_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
         run(self.engine)
         self.assertEqual(self.versions().count("20260830_01_emergency_stop"), 1)
         self.assertEqual(self.versions().count("20260830_02_user_youtube_identity"), 1)
@@ -72,8 +74,22 @@ class MigrationRunnerTests(unittest.TestCase):
             viewer = User(youtube_id="UC-real-viewer", username="Viewer")
             db.add(viewer); db.commit()
             self.assertEqual(viewer.channel_id, "UC-real-viewer")
+            self.assertEqual(viewer.youtube_user_id, "UC-real-viewer")
         finally:
             db.close()
+
+    def test_legacy_youtube_user_identity_is_backfilled(self):
+        with self.engine.begin() as conn:
+            conn.execute(text("CREATE TABLE system_state (id INTEGER PRIMARY KEY, emergency_stop BOOLEAN NOT NULL DEFAULT 0)"))
+            conn.execute(text(
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, username VARCHAR, youtube_id VARCHAR, "
+                "first_seen TIMESTAMP, last_seen TIMESTAMP)"
+            ))
+            conn.execute(text("INSERT INTO users(id, username, youtube_id) VALUES (1, 'viewer', 'UC-viewer')"))
+        run(self.engine, bootstrap=False)
+        with self.engine.connect() as conn:
+            value = conn.execute(text("SELECT youtube_user_id FROM users WHERE id = 1")).scalar_one()
+        self.assertEqual(value, "UC-viewer")
 
     def test_failed_migration_rolls_back_and_stops(self):
         with self.engine.begin() as conn:

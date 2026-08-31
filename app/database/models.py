@@ -8,6 +8,11 @@ def _channel_id_from_youtube_id(context):
     """Keep the legacy required channel identity aligned with YouTube identity."""
     return context.get_current_parameters().get("youtube_id")
 
+
+def _youtube_user_id_from_youtube_id(context):
+    """Populate the deployed legacy viewer-identity column from the same ID."""
+    return context.get_current_parameters().get("youtube_id")
+
 # --- The SaaS Streamer Table ---
 class Streamer(Base):
     __tablename__ = "streamers"
@@ -91,11 +96,12 @@ class User(Base):
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
-    # `channel_id` is the legacy, required YouTube channel identity in the
-    # production schema.  `youtube_id` is the newer name used by the bot.
-    # Store the same real YouTube identifier in both during the transition.
+    # `channel_id` and `youtube_user_id` are legacy, required YouTube viewer
+    # identities in deployed schemas. `youtube_id` is the newer name used by
+    # the bot. Store the same real YouTube identifier in all three.
     channel_id = Column(String, unique=True, index=True, nullable=False, default=_channel_id_from_youtube_id)
     youtube_id = Column(String, unique=True, index=True)
+    youtube_user_id = Column(String, unique=True, index=True, nullable=False, default=_youtube_user_id_from_youtube_id)
     username = Column(String)
     first_seen = Column(DateTime(timezone=True), server_default=func.now())
     last_seen = Column(DateTime(timezone=True), onupdate=func.now())

@@ -231,7 +231,7 @@ class YouTubeChatMonitor:
             if not is_guest and coin_bonus > 0:
                 user = db.query(User).filter(User.youtube_id == yt_user_id).first()
                 if not user:
-                    user = User(youtube_id=yt_user_id, username=author_name)
+                    user = User(channel_id=yt_user_id, youtube_id=yt_user_id, youtube_user_id=yt_user_id, username=author_name)
                     db.add(user)
                     db.flush() 
                     db.add(XP(user_id=user.id, streamer_id=effective_id, current_xp=0, level=1, total_messages=0))
@@ -259,6 +259,7 @@ class YouTubeChatMonitor:
     # ---------------------------------------------------------
     async def process_message(self, yt_user_id: str, username: str, message_text: str, message_id: str, actual_id: int, effective_id: int, live_chat_id: str, is_mod: bool, is_guest: bool = False, is_owner: bool = False):
         db = SessionLocal() if not is_guest else None
+        processing_stage = "initialization"
         try:
             text_words = message_text.lower().split()
             clean_username = username.strip().lower()
@@ -540,6 +541,7 @@ class YouTubeChatMonitor:
             
             if any(name in command_text for name in bot_names):
                 if ai_cohost_enabled:
+                    processing_stage = "ai_cohost"
                     now = time.time()
                     if effective_id not in self.monitored_users:
                         self.monitored_users[effective_id] = {}
@@ -609,9 +611,10 @@ class YouTubeChatMonitor:
                         return
 
             # 3. REWARDS & ECONOMY SETUP
+            processing_stage = "viewer_persistence"
             user = db.query(User).filter(User.youtube_id == yt_user_id).first()
             if not user:
-                user = User(youtube_id=yt_user_id, username=username)
+                user = User(channel_id=yt_user_id, youtube_id=yt_user_id, youtube_user_id=yt_user_id, username=username)
                 db.add(user)
                 db.flush() 
                 db.add(XP(user_id=user.id, streamer_id=effective_id, current_xp=10, level=1, total_messages=1))
@@ -724,7 +727,7 @@ class YouTubeChatMonitor:
 
         except Exception as e:
             if not is_guest: db.rollback()
-            print(f"🚨 [PROCESS MSG ERROR] {e}")
+            print(f"🚨 [PROCESS MSG ERROR] stage={processing_stage} type={type(e).__name__}: {e}")
         finally:
             if not is_guest: db.close()
 

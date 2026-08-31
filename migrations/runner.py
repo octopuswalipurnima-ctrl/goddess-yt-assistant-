@@ -32,7 +32,7 @@ MIGRATIONS = [("20260830_01_emergency_stop", [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS channel_id VARCHAR",
     "UPDATE users SET channel_id = youtube_id WHERE channel_id IS NULL AND youtube_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_channel_id ON users (channel_id)",
-]), ("20260831_02_direct_dashboard_audit_actor", [])]
+]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", [])]
 
 
 class MigrationError(RuntimeError):
@@ -88,6 +88,47 @@ def _reconcile_direct_dashboard_audit_actor(conn) -> None:
         logger.warning("Migration 20260831_02: legacy %s audit_logs.user_id remains NOT NULL; dialect cannot alter it", conn.dialect.name)
 
 
+def _reconcile_legacy_youtube_user_identity(conn) -> None:
+    """Make legacy ``users.youtube_user_id`` compatible with bot inserts.
+
+    Railway's older schema requires this column, while the application later
+    renamed the same YouTube viewer identity to ``youtube_id``.  Inspect first
+    so installs that already have the legacy column are untouched; installations
+    without it receive a safely backfilled column before it becomes required.
+    """
+    table_names = {name.lower() for name in inspect(conn).get_table_names()}
+    if "users" not in table_names:
+        return
+
+    columns = {column["name"].lower(): column for column in inspect(conn).get_columns("users")}
+    if "youtube_user_id" not in columns:
+        logger.info("Migration 20260831_03: adding legacy users.youtube_user_id")
+        conn.execute(text("ALTER TABLE users ADD COLUMN youtube_user_id VARCHAR"))
+        columns = {column["name"].lower(): column for column in inspect(conn).get_columns("users")}
+
+    if "youtube_id" in columns:
+        conn.execute(text(
+            "UPDATE users SET youtube_user_id = youtube_id "
+            "WHERE youtube_user_id IS NULL AND youtube_id IS NOT NULL"
+        ))
+
+    # PostgreSQL can enforce the model's invariant once every legacy record
+    # has a value. Do not weaken an existing production constraint, and do not
+    # make a historic row with no recoverable YouTube ID block deployment.
+    if conn.dialect.name == "postgresql":
+        missing = conn.execute(text("SELECT count(*) FROM users WHERE youtube_user_id IS NULL")).scalar_one()
+        if missing == 0:
+            columns = {column["name"].lower(): column for column in inspect(conn).get_columns("users")}
+            if columns["youtube_user_id"].get("nullable", True):
+                logger.info("Migration 20260831_03: making users.youtube_user_id required")
+                conn.execute(text("ALTER TABLE users ALTER COLUMN youtube_user_id SET NOT NULL"))
+        else:
+            logger.warning(
+                "Migration 20260831_03: leaving users.youtube_user_id nullable; %d legacy rows have no recoverable YouTube ID",
+                missing,
+            )
+
+
 def _bootstrap(target_engine: Engine) -> None:
     # Register mapped tables before create_all when the runner is invoked
     # directly (rather than through the application import path).
@@ -115,6 +156,8 @@ def _apply_migrations(target_engine: Engine, migrations: Iterable[tuple[str, lis
             with target_engine.begin() as conn:
                 if version == "20260831_02_direct_dashboard_audit_actor":
                     _reconcile_direct_dashboard_audit_actor(conn)
+                elif version == "20260831_03_legacy_youtube_user_identity":
+                    _reconcile_legacy_youtube_user_identity(conn)
                 for statement_index, statement in enumerate(statements, start=1):
                     try:
                         executable_statement = _statement_for_dialect(conn, statement)

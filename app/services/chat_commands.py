@@ -113,7 +113,12 @@ class ChatCommandService:
     def _user(self) -> User:
         user = self.db.query(User).filter(User.youtube_id == self.actor.youtube_id).first()
         if not user:
-            user = User(youtube_id=self.actor.youtube_id, username=self.actor.username)
+            user = User(
+                channel_id=self.actor.youtube_id,
+                youtube_id=self.actor.youtube_id,
+                youtube_user_id=self.actor.youtube_id,
+                username=self.actor.username,
+            )
             self.db.add(user); self.db.flush()
             self.db.add(XP(user_id=user.id, streamer_id=self.streamer_id, current_xp=0, level=1, total_messages=0))
             self.db.add(Coin(user_id=user.id, streamer_id=self.streamer_id, balance=0, lifetime_earned=0))

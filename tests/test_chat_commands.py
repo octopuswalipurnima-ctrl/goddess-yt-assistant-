@@ -54,6 +54,12 @@ class ChatCommandServiceTests(unittest.TestCase):
         balance = self.db.query(Coin).filter_by(user_id=viewer.id, streamer_id=self.stream_a.id).one().balance
         self.assertEqual(balance, 50)
 
+    def test_command_user_creation_populates_all_legacy_youtube_identities(self):
+        self.assertIn("#1", self.execute("!join", self.viewer, "identity-1"))
+        user = self.db.query(User).filter_by(youtube_id="viewer").one()
+        self.assertEqual(user.channel_id, "viewer")
+        self.assertEqual(user.youtube_user_id, "viewer")
+
     def test_log_channel_is_moderator_only_persistent_and_idempotent(self):
         moderator = ChatActor("mod", "Mod", True, False)
         channel_id = "123456789012345678"
