@@ -25,6 +25,38 @@ class YouTubeAPIManager:
         self.rate_limiter = TokenBucketRateLimiter(capacity=10, refill_rate_per_second=1.0)
         # Priority Queue Manager
         self.queue_manager = APIQueueManager(max_concurrent=3)
+        # Stable lookups can be requested by more than one stream worker at
+        # startup.  Share one in-flight result instead of spending quota twice.
+        self._inflight_requests: Dict[str, asyncio.Task] = {}
+        self._quota_exhausted_until = 0.0
+        self._last_quota_log_at = 0.0
+
+    def _quota_available(self) -> bool:
+        return time.time() >= self._quota_exhausted_until
+
+    def _mark_quota_exhausted(self, error: Exception) -> bool:
+        """Open a quiet circuit breaker only for YouTube's quota response."""
+        if "quotaexceeded" not in str(error).lower():
+            return False
+        # Daily quota does not recover quickly. Avoid retry storms while still
+        # allowing a later process restart or the next quota window to recover.
+        self._quota_exhausted_until = max(self._quota_exhausted_until, time.time() + 6 * 60 * 60)
+        if time.time() - self._last_quota_log_at >= 300:
+            self._last_quota_log_at = time.time()
+            logger.warning("[YT API MANAGER] YouTube quota exhausted; nonessential requests are paused.")
+        return True
+
+    async def _deduplicated(self, key: str, operation):
+        """Reuse a concurrent stable request and always release its key."""
+        task = self._inflight_requests.get(key)
+        if task is None:
+            task = asyncio.create_task(operation())
+            self._inflight_requests[key] = task
+        try:
+            return await task
+        finally:
+            if self._inflight_requests.get(key) is task and task.done():
+                self._inflight_requests.pop(key, None)
 
     def _get_service(self):
         """Constructs an un-cached, thread-safe Google API Service Client."""
@@ -42,6 +74,8 @@ class YouTubeAPIManager:
         cached_result = global_cache.get(cache_key)
         if cached_result:
             return cached_result["channel_id"], cached_result["chat_id"]
+        if not self._quota_available():
+            return None, None
 
         async def _raw_fetch():
             await self.rate_limiter.acquire(1)
@@ -59,13 +93,17 @@ class YouTubeAPIManager:
                 "stream_title": item["snippet"].get("title"),
             }
 
-        try:
+        async def _fetch_and_cache():
             channel_id, chat_id, metadata = await self.queue_manager.execute(Priority.NORMAL, _raw_fetch)
             if channel_id and chat_id:
                 # Cache valid stream IDs for 2 hours (7200 seconds)
                 global_cache.set(cache_key, {"channel_id": channel_id, "chat_id": chat_id, **metadata}, ttl_seconds=7200)
             return channel_id, chat_id
+
+        try:
+            return await self._deduplicated(cache_key, _fetch_and_cache)
         except Exception as e:
+            self._mark_quota_exhausted(e)
             logger.error(f"[YT API MANAGER] Error fetching stream info for video {video_id}: {e}")
             return None, None
 
@@ -83,6 +121,8 @@ class YouTubeAPIManager:
         cached = global_cache.get(cache_key)
         if cached:
             return cached
+        if not self._quota_available():
+            return {"bot_name": None, "bot_handle": None}
 
         async def _raw_fetch():
             await self.rate_limiter.acquire(1)
@@ -92,8 +132,9 @@ class YouTubeAPIManager:
             return {"bot_name": snippet.get("title"), "bot_handle": snippet.get("customUrl")}
 
         try:
-            identity = await self.queue_manager.execute(Priority.LOW, _raw_fetch)
+            identity = await self._deduplicated(cache_key, lambda: self.queue_manager.execute(Priority.LOW, _raw_fetch))
         except Exception as exc:
+            self._mark_quota_exhausted(exc)
             logger.warning("[YT IDENTITY] Unable to load bot identity type=%s", type(exc).__name__)
             identity = {"bot_name": None, "bot_handle": None}
         global_cache.set(cache_key, identity, ttl_seconds=600)
@@ -106,6 +147,9 @@ class YouTubeAPIManager:
         """
         Reads messages from YouTube Live Chat using the queue and rate limiter.
         """
+        if not self._quota_available():
+            return {"items": [], "pollingIntervalMillis": 60000, "quota_exhausted": True}
+
         async def _raw_list():
             await self.rate_limiter.acquire(1)
             service = self._get_service()
@@ -118,6 +162,7 @@ class YouTubeAPIManager:
         try:
             return await self.queue_manager.execute(Priority.NORMAL, _raw_list)
         except Exception as e:
+            self._mark_quota_exhausted(e)
             logger.error(f"[YT API MANAGER] Chat list error on {live_chat_id}: {e}")
             raise e
 
@@ -129,6 +174,8 @@ class YouTubeAPIManager:
         Posts a text message into YouTube live chat. High Priority queue item.
         """
         if not live_chat_id or not text:
+            return None
+        if not self._quota_available():
             return None
 
         async def _raw_send():
@@ -148,6 +195,7 @@ class YouTubeAPIManager:
         try:
             return await self.queue_manager.execute(Priority.HIGH, _raw_send)
         except Exception as e:
+            self._mark_quota_exhausted(e)
             logger.error(f"[YT API MANAGER] Error sending message to {live_chat_id}: {e}")
             return None
 
@@ -157,6 +205,8 @@ class YouTubeAPIManager:
     async def delete_chat_message(self, message_id: str) -> bool:
         """Deletes a message from live chat."""
         if not message_id:
+            return False
+        if not self._quota_available():
             return False
 
         async def _raw_delete():
@@ -168,6 +218,7 @@ class YouTubeAPIManager:
         try:
             return await self.queue_manager.execute(Priority.HIGH, _raw_delete)
         except Exception as e:
+            self._mark_quota_exhausted(e)
             logger.error(f"[YT API MANAGER] Error deleting message {message_id}: {e}")
             return False
 
@@ -180,6 +231,8 @@ class YouTubeAPIManager:
     ) -> bool:
         """Issues a timeout or permanent ban to a user."""
         if not live_chat_id or not channel_id:
+            return False
+        if not self._quota_available():
             return False
 
         ban_type = "permanent" if is_permanent else "temporary"
@@ -202,6 +255,7 @@ class YouTubeAPIManager:
         try:
             return await self.queue_manager.execute(Priority.HIGH, _raw_ban)
         except Exception as e:
+            self._mark_quota_exhausted(e)
             logger.error(f"[YT API MANAGER] Error issuing {ban_type} ban to {channel_id}: {e}")
             return False
 

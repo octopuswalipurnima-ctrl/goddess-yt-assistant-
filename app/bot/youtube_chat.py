@@ -31,6 +31,7 @@ class YouTubeChatMonitor:
         self.monitored_users = {} 
         self.spam_tracker = {}
         self.hardened_rules = {}  
+        self.cohost_questions = {}
         
         self.greeted_users = set()
         self.custom_commands = {}
@@ -549,7 +550,13 @@ class YouTubeChatMonitor:
                     last_reply_time = self.monitored_users[effective_id].get('last_bot_reply', 0)
 
                     # 15-SECOND RATE LIMIT: Fast enough to chat, slow enough to block spam
-                    if now - last_reply_time > 15:
+                    normalized_question = " ".join(command_text.split())
+                    previous_question = self.cohost_questions.get(effective_id, {})
+                    is_recent_duplicate = (
+                        previous_question.get("text") == normalized_question
+                        and now - previous_question.get("at", 0) < 120
+                    )
+                    if now - last_reply_time > 15 and not is_recent_duplicate:
                         recent_logs = db.query(ChatLog).filter(ChatLog.streamer_id == effective_id).order_by(ChatLog.timestamp.desc()).limit(6).all()
                         context = [{"username": log.user.username, "text": log.message} for log in reversed(recent_logs)]
                         
@@ -557,14 +564,22 @@ class YouTubeChatMonitor:
                         if getattr(streamer, "persona_enabled", False):
                             persona_context = {"persona_enabled": True, "personality_mode": streamer.personality_mode}
                             speaker_role = "stream owner" if is_owner else "moderator" if is_mod else "viewer"
-                            direct_prompt = [f"A {speaker_role} named '{username}' said: '{message_text}'. Reply naturally."]
+                            direct_prompt = [
+                                f"A {speaker_role} named '{username}' said: '{message_text}'. "
+                                f"Reply naturally. {self.ai.language_instruction(message_text)} Keep it to one short sentence."
+                            ]
                         else:
-                            direct_prompt = [f"User '{username}' is directly talking to you. They said: '{message_text}'. Reply to them naturally and answer their question."]
+                            direct_prompt = [
+                                f"User '{username}' is directly talking to you. They said: '{message_text}'. "
+                                f"Reply naturally and answer their question. {self.ai.language_instruction(message_text)} "
+                                "Keep it to one short sentence."
+                            ]
                         
                         reaction = await self.ai.generate_chat_reaction(direct_prompt, context, persona_context)
                         
                         if reaction:
                             clean_reaction = reaction.replace(f"@{username}", "").strip()
+                            self.cohost_questions[effective_id] = {"text": normalized_question, "at": now}
                             await self.send_message(f"@{username} {clean_reaction}", live_chat_id)
                             self.monitored_users[effective_id]['last_bot_reply'] = now
 
@@ -810,6 +825,7 @@ class YouTubeChatMonitor:
                                 "effective_id": streamer.effective_id if streamer else None,
                                 "is_guest": is_guest,
                                 "next_page_token": None,
+                                "next_poll_at": 0.0,
                                 "error_count": 0,
                                 "last_sos": 0.0 # Prevent spamming SOS messages
                             }
@@ -823,6 +839,8 @@ class YouTubeChatMonitor:
                     db_session = SessionLocal()
                     try:
                         stream_data = self.active_streams[vid_id]
+                        if time.time() < stream_data.get("next_poll_at", 0.0):
+                            return
                         chat_id = stream_data["chat_id"]
                         token = stream_data["next_page_token"]
                         is_guest = stream_data["is_guest"]
@@ -839,7 +857,7 @@ class YouTubeChatMonitor:
                         # Scalable API call via Central YouTube API Manager
                         response = await yt_api_manager.get_live_chat_messages(chat_id, token)
 
-                        if sys_state:
+                        if sys_state and not response.get("quota_exhausted"):
                             sys_state.youtube_api_calls += 1
                             db_session.commit()
 
@@ -847,6 +865,12 @@ class YouTubeChatMonitor:
                         self.active_streams[vid_id]["error_count"] = 0
                         
                         items = response.get("items", [])
+                        suggested_seconds = response.get("pollingIntervalMillis", 8000) / 1000
+                        # Honor YouTube's recommendation, and slow quiet chats
+                        # without delaying an active chat beyond its guidance.
+                        if not items:
+                            suggested_seconds = max(suggested_seconds, 12)
+                        self.active_streams[vid_id]["next_poll_at"] = time.time() + min(60, max(3, suggested_seconds))
 
                         for item in items:
                             snippet = item["snippet"]

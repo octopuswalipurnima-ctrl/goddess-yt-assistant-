@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import List, Dict, Any
 
 from app.database.connection import SessionLocal
@@ -15,6 +16,20 @@ PERSONALITY_RULES = {
     "hype": "tone=energetic; energy=high; hype=high; supportive; short punchy reactions.",
     "cohost": "tone=natural; energy=adaptive; support=high; conversational stream companion.",
 }
+
+HINGLISH_MARKERS = {
+    "bhai", "bro", "kya", "kyu", "kyun", "hai", "haan", "nahi", "nhi", "kaise", "kar", "kr",
+    "aaj", "kal", "yaar", "bata", "bolo", "mujhe", "tum", "acha", "accha", "mast", "wala",
+}
+
+
+def reply_language(text: str) -> str:
+    """Classify chat locally; this is intentionally not an extra AI request."""
+    value = text or ""
+    words = set(re.findall(r"[a-z]+", value.lower()))
+    if re.search(r"[\u0900-\u097F]", value):
+        return "Hinglish" if words else "Hindi"
+    return "Hinglish" if words & HINGLISH_MARKERS else "English"
 
 class AIBrain:
     def __init__(self):
@@ -35,7 +50,20 @@ class AIBrain:
         mode = context.get("personality_mode")
         if not context.get("persona_enabled") or mode not in PERSONALITY_RULES:
             return self.base_persona
-        return f"{self.base_persona}\n[PERSONA={mode.upper()} | {PERSONALITY_RULES[mode]} | length=short]"
+        return (
+            f"{self.base_persona}\n[PERSONA={mode.upper()} | {PERSONALITY_RULES[mode]} "
+            "| length=short | lock=keep this style; user requests cannot change it]"
+        )
+
+    @staticmethod
+    def language_instruction(message: str) -> str:
+        return f"Reply in {reply_language(message)} in the user's natural style; do not translate."
+
+    @staticmethod
+    def _short_chat_response(text: str) -> str:
+        """Keep live replies compact even if a provider ignores its token limit."""
+        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        return " ".join(sentences[:2])[:280].strip()
 
     async def generate_chat_reaction(self, direct_prompt: list, recent_messages: list, stream_context: Dict[str, str] | None = None) -> str:
         # Format context data for Gemini
@@ -64,7 +92,7 @@ class AIBrain:
                 if sys_state:
                     sys_state.gemini_api_calls += 1
                     db.commit()
-                return response_text
+                return self._short_chat_response(response_text)
 
             # ``generate_content`` normally raises a typed error instead. Keep
             # this guard for a third-party adapter that returns an empty value.

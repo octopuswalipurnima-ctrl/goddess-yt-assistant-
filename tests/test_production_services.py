@@ -91,6 +91,16 @@ class CohostTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("PERSONA=HYPE", instruction) if mode != "hype" else None
             self.assertNotIn("PERSONA=COHOST", instruction) if mode != "cohost" else None
 
+    def test_language_detection_is_local_and_persona_lock_is_explicit(self):
+        from app.ai.generator import AIBrain, reply_language
+        self.assertEqual(reply_language("What device are you using?"), "English")
+        self.assertEqual(reply_language("आज स्ट्रीम कैसी है?"), "Hindi")
+        self.assertEqual(reply_language("आज stream kaisi hai?"), "Hinglish")
+        self.assertEqual(reply_language("Bhai kya clutch tha"), "Hinglish")
+        instruction = AIBrain().system_instruction_for({"persona_enabled": True, "personality_mode": "roast"})
+        self.assertIn("lock=keep this style", instruction)
+        self.assertIn("Reply in Hinglish", AIBrain().language_instruction("Bhai kya clutch tha"))
+
     async def test_cohost_uses_shared_gemini_adapter(self):
         from app.ai.generator import AIBrain
         with patch("app.ai.generator.SessionLocal") as session_factory, patch("app.ai.generator.gemini_api_manager.generate_content", new=AsyncMock(return_value="Nice clutch!")) as generate:
@@ -108,6 +118,26 @@ class CohostTests(unittest.IsolatedAsyncioTestCase):
         ):
             answer = await AIBrain().generate_chat_reaction(["React"], [])
         self.assertEqual(answer, "Sorry, I'm having trouble generating a response right now. Please try again in a moment.")
+
+    async def test_stable_youtube_requests_are_deduplicated_and_quota_pauses(self):
+        from app.services.youtube.yt_api_manager import YouTubeAPIManager
+        manager = YouTubeAPIManager()
+        calls = 0
+
+        async def lookup():
+            nonlocal calls
+            calls += 1
+            await asyncio.sleep(0)
+            return "value"
+
+        self.assertEqual(await asyncio.gather(
+            manager._deduplicated("stable-key", lookup),
+            manager._deduplicated("stable-key", lookup),
+        ), ["value", "value"])
+        self.assertEqual(calls, 1)
+        self.assertTrue(manager._mark_quota_exhausted(Exception("quotaExceeded")))
+        paused = await manager.get_live_chat_messages("live-chat")
+        self.assertTrue(paused["quota_exhausted"])
 
 
 class OpenRouterFallbackTests(unittest.IsolatedAsyncioTestCase):
