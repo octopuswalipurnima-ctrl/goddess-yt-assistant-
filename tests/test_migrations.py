@@ -42,6 +42,16 @@ class MigrationRunnerTests(unittest.TestCase):
         self.assertIn("emergency_stop", columns)
         self.assertIn("emergency_reason", columns)
 
+    def test_direct_dashboard_migration_adds_missing_audit_actor_column(self):
+        with self.engine.begin() as conn:
+            conn.execute(text("CREATE TABLE system_state (id INTEGER PRIMARY KEY, emergency_stop BOOLEAN NOT NULL DEFAULT 0)"))
+            conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, username VARCHAR)"))
+            conn.execute(text("CREATE TABLE audit_logs (id INTEGER PRIMARY KEY, streamer_id INTEGER NOT NULL, action VARCHAR NOT NULL)"))
+        run(self.engine, bootstrap=False)
+        columns = {column["name"]: column for column in inspect(self.engine).get_columns("audit_logs")}
+        self.assertIn("user_id", columns)
+        self.assertTrue(columns["user_id"]["nullable"])
+
     def test_legacy_users_table_gains_youtube_identity(self):
         with self.engine.begin() as conn:
             conn.execute(text("CREATE TABLE system_state (id INTEGER PRIMARY KEY, emergency_stop BOOLEAN NOT NULL DEFAULT 0)"))

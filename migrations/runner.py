@@ -32,11 +32,7 @@ MIGRATIONS = [("20260830_01_emergency_stop", [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS channel_id VARCHAR",
     "UPDATE users SET channel_id = youtube_id WHERE channel_id IS NULL AND youtube_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_channel_id ON users (channel_id)",
-]), ("20260831_02_direct_dashboard_audit_actor", [
-    # Dashboard direct-entry has no authenticated web user.  Preserve audit
-    # records while allowing their actor to be absent rather than synthetic.
-    "ALTER TABLE audit_logs ALTER COLUMN user_id DROP NOT NULL",
-])]
+]), ("20260831_02_direct_dashboard_audit_actor", [])]
 
 
 class MigrationError(RuntimeError):
@@ -50,10 +46,6 @@ def _statement_for_dialect(conn, statement: str) -> str | None:
     """SQLite lacks ALTER TABLE ADD COLUMN IF NOT EXISTS; preserve PostgreSQL SQL."""
     if conn.dialect.name != "sqlite":
         return statement
-    if statement == "ALTER TABLE audit_logs ALTER COLUMN user_id DROP NOT NULL":
-        # SQLite does not support ALTER COLUMN and has no equivalent needed for
-        # the test schema, where this column is created nullable by the model.
-        return None
     match = SQLITE_ADD_COLUMN_IF_NOT_EXISTS.match(statement)
     if not match:
         return statement
@@ -61,6 +53,39 @@ def _statement_for_dialect(conn, statement: str) -> str | None:
     if column_name.lower() in {column["name"].lower() for column in inspect(conn).get_columns(table_name)}:
         return None
     return statement.replace("ADD COLUMN IF NOT EXISTS", "ADD COLUMN")
+
+
+def _reconcile_direct_dashboard_audit_actor(conn) -> None:
+    """Align legacy audit_logs schemas with the nullable AuditLog.actor field.
+
+    Some deployed databases predate the RBAC audit model and have no user_id
+    at all.  Others have it as NOT NULL.  Inspect first so this migration is
+    safe across both histories; dashboard startup must not fabricate a User.
+    """
+    table_names = {name.lower() for name in inspect(conn).get_table_names()}
+    if "audit_logs" not in table_names:
+        # Bootstrap has not created this optional table; there is no legacy
+        # schema to reconcile in this migration run.
+        return
+
+    columns = {column["name"].lower(): column for column in inspect(conn).get_columns("audit_logs")}
+    user_column = columns.get("user_id")
+    if user_column is None:
+        logger.info("Migration 20260831_02: adding missing nullable audit_logs.user_id")
+        conn.execute(text("ALTER TABLE audit_logs ADD COLUMN user_id INTEGER"))
+        return
+
+    if user_column.get("nullable", True):
+        return
+    if conn.dialect.name == "postgresql":
+        logger.info("Migration 20260831_02: making audit_logs.user_id nullable")
+        conn.execute(text("ALTER TABLE audit_logs ALTER COLUMN user_id DROP NOT NULL"))
+    else:
+        # SQLite cannot alter column nullability.  Fresh SQLite databases are
+        # created from the nullable ORM model; preserving a legacy NOT NULL
+        # constraint is safe because no direct-dashboard audit insert supplies
+        # a synthetic actor in production PostgreSQL.
+        logger.warning("Migration 20260831_02: legacy %s audit_logs.user_id remains NOT NULL; dialect cannot alter it", conn.dialect.name)
 
 
 def _bootstrap(target_engine: Engine) -> None:
@@ -88,6 +113,8 @@ def _apply_migrations(target_engine: Engine, migrations: Iterable[tuple[str, lis
         # version from being recorded. Later migrations are never attempted.
         try:
             with target_engine.begin() as conn:
+                if version == "20260831_02_direct_dashboard_audit_actor":
+                    _reconcile_direct_dashboard_audit_actor(conn)
                 for statement_index, statement in enumerate(statements, start=1):
                     try:
                         executable_statement = _statement_for_dialect(conn, statement)
