@@ -27,6 +27,7 @@ class MigrationRunnerTests(unittest.TestCase):
         self.assertIn("20260831_03_legacy_youtube_user_identity", self.versions())
         self.assertIn("20260831_05_audit_streamer_scope", self.versions())
         self.assertIn("20260831_06_streamer_persona_enabled", self.versions())
+        self.assertIn("20260831_07_audit_log_schema_complete", self.versions())
         self.assertIn("emergency_reason", {column["name"] for column in inspect(self.engine).get_columns("system_state")})
         self.assertIn("youtube_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
         self.assertTrue({"first_seen", "last_seen"}.issubset({column["name"] for column in inspect(self.engine).get_columns("users")}))
@@ -69,6 +70,26 @@ class MigrationRunnerTests(unittest.TestCase):
         self.assertTrue(columns["streamer_id"]["nullable"])
         with self.engine.connect() as conn:
             self.assertEqual(conn.execute(text("SELECT action FROM audit_logs WHERE id = 1")).scalar_one(), "LEGACY_EVENT")
+
+    def test_incomplete_legacy_audit_table_gets_action_and_write_columns(self):
+        with self.engine.begin() as conn:
+            conn.execute(text("CREATE TABLE system_state (id INTEGER PRIMARY KEY, emergency_stop BOOLEAN NOT NULL DEFAULT 0)"))
+            conn.execute(text("CREATE TABLE streamers (id INTEGER PRIMARY KEY, personality_mode VARCHAR)"))
+            conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, username VARCHAR)"))
+            conn.execute(text("CREATE TABLE audit_logs (id INTEGER PRIMARY KEY, streamer_id INTEGER, timestamp TIMESTAMP)"))
+            conn.execute(text("INSERT INTO audit_logs(id, streamer_id) VALUES (1, 1)"))
+        run(self.engine, bootstrap=False)
+        columns = {column["name"]: column for column in inspect(self.engine).get_columns("audit_logs")}
+        self.assertTrue({"streamer_id", "user_id", "action", "details", "timestamp"}.issubset(columns))
+        self.assertFalse(columns["action"]["nullable"])
+        with self.engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO audit_logs(streamer_id, user_id, action, details) "
+                "VALUES (1, NULL, 'YOUTUBE_CHANNEL_SET', 'UCtest')"
+            ))
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(text("SELECT action FROM audit_logs WHERE id = 1")).scalar_one(), "LEGACY_EVENT")
+            self.assertEqual(conn.execute(text("SELECT action FROM audit_logs WHERE action = 'YOUTUBE_CHANNEL_SET'")).scalar_one(), "YOUTUBE_CHANNEL_SET")
 
     def test_legacy_users_table_gains_youtube_identity(self):
         with self.engine.begin() as conn:

@@ -32,7 +32,7 @@ MIGRATIONS = [("20260830_01_emergency_stop", [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS channel_id VARCHAR",
     "UPDATE users SET channel_id = youtube_id WHERE channel_id IS NULL AND youtube_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_channel_id ON users (channel_id)",
-]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", [])]
+]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", []), ("20260831_07_audit_log_schema_complete", [])]
 
 
 class MigrationError(RuntimeError):
@@ -181,6 +181,44 @@ def _reconcile_streamer_persona_enabled(conn) -> None:
         conn.execute(text("ALTER TABLE streamers ADD COLUMN persona_enabled BOOLEAN NOT NULL DEFAULT FALSE"))
 
 
+def _reconcile_audit_log_schema_complete(conn) -> None:
+    """Bring pre-RBAC audit tables up to the mapped AuditLog write contract.
+
+    Railway can have an old ``audit_logs`` table even when earlier migration
+    versions were recorded by a deployment that did not contain every audit
+    column.  Inspecting each column makes this safe to re-run and preserves
+    historical rows.  ``LEGACY_EVENT`` is an explicit marker for rows created
+    before action names existed; all new ORM writes supply their real action.
+    """
+    table_names = {name.lower() for name in inspect(conn).get_table_names()}
+    if "audit_logs" not in table_names:
+        return
+
+    # Re-run the prior compatible reconcilers so this migration also repairs a
+    # database whose historical migration-version record was incomplete.
+    _reconcile_direct_dashboard_audit_actor(conn)
+    _reconcile_audit_streamer_scope(conn)
+
+    columns = {column["name"].lower(): column for column in inspect(conn).get_columns("audit_logs")}
+    if "action" not in columns:
+        logger.info("Migration 20260831_07: adding required audit_logs.action")
+        conn.execute(text("ALTER TABLE audit_logs ADD COLUMN action VARCHAR NOT NULL DEFAULT 'LEGACY_EVENT'"))
+    elif conn.dialect.name == "postgresql" and columns["action"].get("nullable", True):
+        # Existing NULLs have no recoverable action, but must be named before
+        # the model's non-null invariant can be enforced.
+        conn.execute(text("UPDATE audit_logs SET action = 'LEGACY_EVENT' WHERE action IS NULL"))
+        logger.info("Migration 20260831_07: making audit_logs.action required")
+        conn.execute(text("ALTER TABLE audit_logs ALTER COLUMN action SET NOT NULL"))
+
+    columns = {column["name"].lower(): column for column in inspect(conn).get_columns("audit_logs")}
+    if "details" not in columns:
+        logger.info("Migration 20260831_07: adding nullable audit_logs.details")
+        conn.execute(text("ALTER TABLE audit_logs ADD COLUMN details VARCHAR"))
+    if "timestamp" not in columns:
+        logger.info("Migration 20260831_07: adding audit_logs.timestamp default")
+        conn.execute(text("ALTER TABLE audit_logs ADD COLUMN timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
+
+
 def _bootstrap(target_engine: Engine) -> None:
     # Register mapped tables before create_all when the runner is invoked
     # directly (rather than through the application import path).
@@ -216,6 +254,8 @@ def _apply_migrations(target_engine: Engine, migrations: Iterable[tuple[str, lis
                     _reconcile_audit_streamer_scope(conn)
                 elif version == "20260831_06_streamer_persona_enabled":
                     _reconcile_streamer_persona_enabled(conn)
+                elif version == "20260831_07_audit_log_schema_complete":
+                    _reconcile_audit_log_schema_complete(conn)
                 for statement_index, statement in enumerate(statements, start=1):
                     try:
                         executable_statement = _statement_for_dialect(conn, statement)

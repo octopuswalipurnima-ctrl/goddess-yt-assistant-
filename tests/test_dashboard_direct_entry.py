@@ -54,10 +54,13 @@ class DashboardDirectEntryTests(unittest.TestCase):
         saved = self.client.post("/api/websub/channel", data={"youtube_channel_id": f"  {channel_id}  "}, follow_redirects=False)
         self.assertEqual(saved.headers["location"], "/?success=channel_saved")
         from app.database.connection import SessionLocal
-        from app.database.models import Streamer
+        from app.database.models import AuditLog, Streamer
         db = SessionLocal()
         try:
             self.assertEqual(db.query(Streamer).order_by(Streamer.id.asc()).first().youtube_channel_id, channel_id)
+            audit = db.query(AuditLog).filter_by(action="YOUTUBE_CHANNEL_SET").one()
+            self.assertEqual(audit.details, channel_id)
+            self.assertIsNone(audit.user_id)
         finally:
             db.close()
         with patch("main.subscribe_websub", return_value=True) as subscribe:
