@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, JSON, Float, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Date, DateTime, JSON, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database.connection import Base
@@ -566,6 +566,10 @@ class SystemState(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     youtube_api_calls = Column(Integer, default=0)
+    # The YouTube usage cap is a daily safety budget, not a lifetime switch.
+    # NULL is tolerated for legacy deployments and is initialized by the
+    # listener on its next poll.
+    youtube_api_window_date = Column(Date, nullable=True)
     gemini_api_calls = Column(Integer, default=0)
     youtube_api_cap = Column(Integer, default=10000)
     gemini_api_cap = Column(Integer, default=1000)

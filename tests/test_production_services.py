@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import create_engine
@@ -138,6 +139,18 @@ class CohostTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(manager._mark_quota_exhausted(Exception("quotaExceeded")))
         paused = await manager.get_live_chat_messages("live-chat")
         self.assertTrue(paused["quota_exhausted"])
+
+    def test_youtube_usage_cap_resets_for_a_new_utc_day(self):
+        from app.bot.youtube_chat import YouTubeChatMonitor
+        state = SystemState(youtube_api_calls=99)
+        changed = YouTubeChatMonitor._reset_youtube_usage_window(
+            state, datetime(2026, 8, 31, tzinfo=timezone.utc)
+        )
+        self.assertTrue(changed)
+        self.assertEqual(state.youtube_api_calls, 0)
+        self.assertFalse(YouTubeChatMonitor._reset_youtube_usage_window(
+            state, datetime(2026, 8, 31, 12, tzinfo=timezone.utc)
+        ))
 
 
 class OpenRouterFallbackTests(unittest.IsolatedAsyncioTestCase):

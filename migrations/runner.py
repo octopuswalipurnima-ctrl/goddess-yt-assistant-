@@ -32,7 +32,7 @@ MIGRATIONS = [("20260830_01_emergency_stop", [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS channel_id VARCHAR",
     "UPDATE users SET channel_id = youtube_id WHERE channel_id IS NULL AND youtube_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_channel_id ON users (channel_id)",
-]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", []), ("20260831_07_audit_log_schema_complete", [])]
+]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", []), ("20260831_07_audit_log_schema_complete", []), ("20260831_08_youtube_daily_usage_window", [])]
 
 
 class MigrationError(RuntimeError):
@@ -219,6 +219,17 @@ def _reconcile_audit_log_schema_complete(conn) -> None:
         conn.execute(text("ALTER TABLE audit_logs ADD COLUMN timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
 
 
+def _reconcile_youtube_daily_usage_window(conn) -> None:
+    """Make the existing YouTube cap resettable instead of a lifetime stop."""
+    table_names = {name.lower() for name in inspect(conn).get_table_names()}
+    if "system_state" not in table_names:
+        return
+    columns = {column["name"].lower() for column in inspect(conn).get_columns("system_state")}
+    if "youtube_api_window_date" not in columns:
+        logger.info("Migration 20260831_08: adding system_state.youtube_api_window_date")
+        conn.execute(text("ALTER TABLE system_state ADD COLUMN youtube_api_window_date DATE"))
+
+
 def _bootstrap(target_engine: Engine) -> None:
     # Register mapped tables before create_all when the runner is invoked
     # directly (rather than through the application import path).
@@ -256,6 +267,8 @@ def _apply_migrations(target_engine: Engine, migrations: Iterable[tuple[str, lis
                     _reconcile_streamer_persona_enabled(conn)
                 elif version == "20260831_07_audit_log_schema_complete":
                     _reconcile_audit_log_schema_complete(conn)
+                elif version == "20260831_08_youtube_daily_usage_window":
+                    _reconcile_youtube_daily_usage_window(conn)
                 for statement_index, statement in enumerate(statements, start=1):
                     try:
                         executable_statement = _statement_for_dialect(conn, statement)

@@ -32,6 +32,7 @@ class YouTubeChatMonitor:
         self.spam_tracker = {}
         self.hardened_rules = {}  
         self.cohost_questions = {}
+        self._listener_notice_at = {}
         
         self.greeted_users = set()
         self.custom_commands = {}
@@ -792,6 +793,24 @@ class YouTubeChatMonitor:
     async def get_chat_from_video(self, video_id: str):
         return await yt_api_manager.get_chat_from_video(video_id)
 
+    @staticmethod
+    def _reset_youtube_usage_window(state, now: datetime | None = None) -> bool:
+        """Reset the configured request budget when its UTC day changes."""
+        today = (now or datetime.now(timezone.utc)).date()
+        if state.youtube_api_window_date != today:
+            state.youtube_api_calls = 0
+            state.youtube_api_window_date = today
+            return True
+        return False
+
+    def _listener_notice(self, video_id: str, reason: str) -> None:
+        """Make intentional listener pauses diagnosable without log spam."""
+        now = time.time()
+        key = f"{video_id}:{reason}"
+        if now - self._listener_notice_at.get(key, 0) >= 300:
+            self._listener_notice_at[key] = now
+            print(f"⚠️ [YOUTUBE LISTENER PAUSED] Video {video_id}: {reason}")
+
     async def run(self):
         print("[YOUTUBE DETECTOR] Event-Driven Scalable Engine Online...")
         global DETECTED_VIDEOS, DISCONNECT_QUEUE
@@ -852,10 +871,21 @@ class YouTubeChatMonitor:
                             self.load_learned_rules_for_streamer(effective_id, db_session)
 
                         sys_state = db_session.query(SystemState).first()
-                        if sys_state and sys_state.youtube_api_calls >= sys_state.youtube_api_cap: return
+                        if sys_state:
+                            if self._reset_youtube_usage_window(sys_state):
+                                db_session.commit()
+                            if sys_state.youtube_api_calls >= sys_state.youtube_api_cap:
+                                self.active_streams[vid_id]["next_poll_at"] = time.time() + 60
+                                self._listener_notice(vid_id, "configured daily YouTube API cap reached")
+                                return
 
                         # Scalable API call via Central YouTube API Manager
                         response = await yt_api_manager.get_live_chat_messages(chat_id, token)
+
+                        if response.get("quota_exhausted"):
+                            self.active_streams[vid_id]["next_poll_at"] = time.time() + 60
+                            self._listener_notice(vid_id, "YouTube quota protection is active")
+                            return
 
                         if sys_state and not response.get("quota_exhausted"):
                             sys_state.youtube_api_calls += 1
