@@ -126,18 +126,14 @@
 <body>
 
     {% if not streamer_name %}
-    <!-- LOGGED OUT VIEW -->
+    <!-- Non-auth fallback: only shown if dashboard data could not be loaded. -->
     <div class="entry-wrapper">
         <div class="glass-panel" style="max-width: 500px; width: 100%; padding: 40px;">
             <i class="fa-solid fa-crown" style="font-size: 3em; color: var(--accent-primary); margin-bottom: 20px;"></i>
             <h1>Goddess AI</h1>
             <p style="font-size: 1.1em; margin-bottom: 32px;">The premium multi-dialect chat moderator and loyalty engine for professional broadcasters.</p>
             
-            {% if request.query_params.get('error') == 'unauthorized_role' %}
-                <div class="alert-box alert-error" style="justify-content: center;"><i class="fa-solid fa-shield-halved"></i> Access Denied. Insufficient Role Permissions.</div>
-            {% endif %}
-
-            <a href="/" class="btn btn-primary" style="width: 100%; font-size: 1.2em; padding: 16px;">Open dashboard</a>
+            <p>The dashboard is temporarily unavailable. Refresh to try again.</p>
         </div>
     </div>
     

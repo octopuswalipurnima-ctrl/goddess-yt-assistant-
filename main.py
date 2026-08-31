@@ -255,8 +255,9 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
 
 
 @app.get("/dashboard")
-async def dashboard_alias():
-    return RedirectResponse(url="/", status_code=303)
+async def dashboard_alias(request: Request, db: Session = Depends(get_db)):
+    """Serve the same dashboard for the explicit dashboard URL, no auth redirect."""
+    return await serve_dashboard(request, db)
 
 
 @app.post("/api/websub/channel")

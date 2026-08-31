@@ -119,7 +119,7 @@ async def setup_dashboard(
         
         if not streamer:
             await interaction.response.send_message(
-                "❌ **Invalid Sync Code.** Please log into your web dashboard, generate a valid token, and try again.", 
+                "❌ **Invalid Sync Code.** Open the web dashboard, generate a valid token, and try again.",
                 ephemeral=True
             )
             return
@@ -241,7 +241,7 @@ async def ai_stats(interaction: discord.Interaction):
         if proposed_rules > 0:
             embed.add_field(
                 name="⚠️ Action Required", 
-                value=f"The AI has proposed **{proposed_rules}** new rules with high confidence. Log into your Web Dashboard to review and approve them.", 
+                value=f"The AI has proposed **{proposed_rules}** new rules with high confidence. Open the Web Dashboard to review and approve them.",
                 inline=False
             )
             

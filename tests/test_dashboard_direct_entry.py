@@ -5,14 +5,26 @@ import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from app.database.connection import init_db
+import app.database.connection as connection
 
 
 class DashboardDirectEntryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        init_db()
+        # Other test modules may import the production connection first.  Give
+        # this web-entry test its own isolated, in-memory application database.
+        connection.engine.dispose()
+        connection.engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        connection.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=connection.engine)
+        connection.init_db()
         from main import app
         cls.app = app
 
@@ -20,7 +32,13 @@ class DashboardDirectEntryTests(unittest.TestCase):
         self.client = TestClient(self.app, base_url="https://testserver")
 
     def test_dashboard_opens_without_login_or_credentials(self):
-        self.assertEqual(self.client.get("/", follow_redirects=False).status_code, 200)
+        root = self.client.get("/", follow_redirects=False)
+        dashboard = TestClient(self.app, base_url="https://testserver").get("/dashboard", follow_redirects=False)
+        self.assertEqual(root.status_code, 200)
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn("Goddess AI", root.text)
+        self.assertNotIn("Sign in", root.text)
+        self.assertNotIn("Log in", root.text)
         self.assertEqual(self.client.get("/login", follow_redirects=False).status_code, 404)
         self.assertEqual(self.client.get("/auth", follow_redirects=False).status_code, 404)
 
