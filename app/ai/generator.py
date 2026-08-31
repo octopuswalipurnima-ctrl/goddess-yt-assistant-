@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 
 from app.database.connection import SessionLocal
 from app.database.models import SystemState
-from app.services.gemini.ai_manager import gemini_api_manager
+from app.services.gemini.ai_manager import AIProviderUnavailableError, AIResponseEmptyError, gemini_api_manager
 from app.services.common.queue_manager import Priority
 
 logger = logging.getLogger("goddess_stream_manager")
@@ -48,19 +48,25 @@ class AIBrain:
                 priority=Priority.LOW
             )
 
-            if response_text:
+            if response_text and response_text.strip():
                 sys_state = db.query(SystemState).first()
                 if sys_state:
                     sys_state.gemini_api_calls += 1
                     db.commit()
                 return response_text
-            
-            return "AI returned an empty response. Check Railway logs."
 
+            # ``generate_content`` normally raises a typed error instead. Keep
+            # this guard for a third-party adapter that returns an empty value.
+            raise AIResponseEmptyError("AI adapter returned no usable text")
+
+        except (AIProviderUnavailableError, AIResponseEmptyError) as exc:
+            if db: db.rollback()
+            logger.warning("[AI CHAT REACTION] unavailable type=%s", type(exc).__name__)
+            return "Sorry, I'm having trouble generating a response right now. Please try again in a moment."
         except Exception as e:
             if db: db.rollback()
             logger.error(f"🚨 [AI CHAT REACTION CRASH] Details: {e}")
-            return f"AI Error: {str(e)[:30]}"
+            return "Sorry, I'm having trouble generating a response right now. Please try again in a moment."
         finally:
             db.close()
 

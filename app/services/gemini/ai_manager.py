@@ -12,6 +12,15 @@ from app.utils.config import Config
 
 logger = logging.getLogger("goddess_stream_manager")
 
+
+class AIProviderUnavailableError(RuntimeError):
+    """No configured provider could produce a response."""
+
+
+class AIResponseEmptyError(RuntimeError):
+    """A provider completed successfully but supplied no usable text."""
+
+
 class GeminiAPIManager:
     def __init__(self):
         # Default primary and fallback models using current supported SDK standards
@@ -24,10 +33,10 @@ class GeminiAPIManager:
     def openrouter_available(self) -> bool:
         return bool(Config.OPENROUTER_ENABLED and Config.OPENROUTER_API_KEY and Config.OPENROUTER_MODEL)
 
-    async def _generate_openrouter(self, prompt: str, system_instruction: Optional[str], temperature: float, max_output_tokens: int) -> Optional[str]:
+    async def _generate_openrouter(self, prompt: str, system_instruction: Optional[str], temperature: float, max_output_tokens: int) -> str:
         """OpenRouter is a sequential fallback; it never duplicates a healthy Gemini call."""
         if not self.openrouter_available:
-            return None
+            raise AIProviderUnavailableError("OpenRouter is not configured")
         messages = []
         if system_instruction:
             messages.append({"role": "system", "content": system_instruction})
@@ -40,12 +49,24 @@ class GeminiAPIManager:
                     json={"model": Config.OPENROUTER_MODEL, "messages": messages, "temperature": temperature, "max_tokens": max_output_tokens},
                 )
                 response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
-                return content.strip() if isinstance(content, str) and content.strip() else None
-        except Exception:
-            # Do not include response bodies or exceptions: either can contain sensitive data.
-            logger.warning("OpenRouter fallback unavailable")
-            return None
+                payload = response.json()
+                choices = payload.get("choices") if isinstance(payload, dict) else None
+                content = choices[0].get("message", {}).get("content") if isinstance(choices, list) and choices else None
+                if isinstance(content, str) and content.strip():
+                    logger.info("[OPENROUTER] Request succeeded")
+                    return content.strip()
+                logger.warning("[OPENROUTER] Request completed with an empty response")
+                raise AIResponseEmptyError("OpenRouter returned no usable text")
+        except AIResponseEmptyError:
+            raise
+        except httpx.HTTPStatusError as exc:
+            # Never log response bodies or headers: they may contain private
+            # content or credentials.
+            logger.warning("[OPENROUTER] Request failed with status=%s", exc.response.status_code)
+            raise AIProviderUnavailableError("OpenRouter request failed") from exc
+        except Exception as exc:
+            logger.warning("[OPENROUTER] Request failed type=%s", type(exc).__name__)
+            raise AIProviderUnavailableError("OpenRouter request failed") from exc
 
     async def generate_content(
         self, 
@@ -54,7 +75,7 @@ class GeminiAPIManager:
         temperature: float = 0.8, 
         max_output_tokens: int = 60,
         priority: Priority = Priority.LOW
-    ) -> Optional[str]:
+    ) -> str:
         """
         Public method matching existing signature. Preserves queue priority,
         rate limiting, and credential rotation while using the modern google-genai SDK.
@@ -122,14 +143,22 @@ class GeminiAPIManager:
                     cred.apply_cooldown(seconds=120)  # 2-minute cooldown for exhausted keys
                 return None
 
+        # When credential rotation has already established that every Gemini
+        # project is unavailable, do not enqueue or retry Gemini. Go directly
+        # to the one configured fallback request.
+        if not gemini_cred_manager.has_healthy_credential():
+            logger.warning("[GEMINI API] No healthy API keys available; falling back to OpenRouter")
+            return await self._generate_openrouter(prompt, system_instruction, temperature, max_output_tokens)
+
         try:
             result = await self.queue_manager.execute(priority, _raw_generate)
-            if result:
-                return result
-            return await self._generate_openrouter(prompt, system_instruction, temperature, max_output_tokens)
-        except Exception as e:
-            logger.error(f"[GEMINI QUEUE ERROR] {e}")
-            return None
+            if isinstance(result, str) and result.strip():
+                return result.strip()
+            logger.warning("[AI_MANAGER] Gemini produced no usable response; falling back to OpenRouter")
+        except Exception as exc:
+            logger.warning("[AI_MANAGER] Gemini request failed type=%s; falling back to OpenRouter", type(exc).__name__)
+
+        return await self._generate_openrouter(prompt, system_instruction, temperature, max_output_tokens)
 
 # Global instance preserving existing imports across the application
 gemini_api_manager = GeminiAPIManager()

@@ -9,7 +9,7 @@ from app.database.connection import Base
 from app.database.models import SystemState
 from app.services.discord_events import DiscordEventLogger
 from app.services.emergency_stop import EmergencyStopController
-from app.services.gemini.ai_manager import GeminiAPIManager
+from app.services.gemini.ai_manager import AIProviderUnavailableError, AIResponseEmptyError, GeminiAPIManager
 from app.utils.config import Config
 
 
@@ -88,6 +88,15 @@ class CohostTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer, "Nice clutch!")
         generate.assert_awaited_once()
 
+    async def test_cohost_hides_provider_failures_from_chat(self):
+        from app.ai.generator import AIBrain
+        with patch("app.ai.generator.SessionLocal") as session_factory, patch(
+            "app.ai.generator.gemini_api_manager.generate_content",
+            new=AsyncMock(side_effect=AIProviderUnavailableError("offline")),
+        ):
+            answer = await AIBrain().generate_chat_reaction(["React"], [])
+        self.assertEqual(answer, "Sorry, I'm having trouble generating a response right now. Please try again in a moment.")
+
 
 class OpenRouterFallbackTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -102,25 +111,52 @@ class OpenRouterFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(manager.openrouter_available)
         Config.OPENROUTER_API_KEY = None
         self.assertFalse(manager.openrouter_available)
-        self.assertIsNone(await manager._generate_openrouter("p", None, 0.1, 10))
+        with self.assertRaises(AIProviderUnavailableError):
+            await manager._generate_openrouter("p", None, 0.1, 10)
 
     async def test_fallback_runs_only_after_gemini_returns_no_result(self):
         manager = GeminiAPIManager()
         manager.queue_manager.execute = AsyncMock(return_value=None)
         manager._generate_openrouter = AsyncMock(return_value="fallback response")
-        self.assertEqual(await manager.generate_content("prompt"), "fallback response")
+        with patch("app.services.gemini.ai_manager.gemini_cred_manager.has_healthy_credential", return_value=True):
+            self.assertEqual(await manager.generate_content("prompt"), "fallback response")
         manager._generate_openrouter.assert_awaited_once()
 
     async def test_existing_gemini_result_skips_openrouter(self):
         manager = GeminiAPIManager()
         manager.queue_manager.execute = AsyncMock(return_value="gemini response")
         manager._generate_openrouter = AsyncMock()
-        self.assertEqual(await manager.generate_content("prompt"), "gemini response")
+        with patch("app.services.gemini.ai_manager.gemini_cred_manager.has_healthy_credential", return_value=True):
+            self.assertEqual(await manager.generate_content("prompt"), "gemini response")
         manager._generate_openrouter.assert_not_awaited()
+
+    async def test_exhausted_gemini_skips_queue_and_uses_one_openrouter_request(self):
+        manager = GeminiAPIManager()
+        manager.queue_manager.execute = AsyncMock()
+        manager._generate_openrouter = AsyncMock(return_value="fallback response")
+        with patch("app.services.gemini.ai_manager.gemini_cred_manager.has_healthy_credential", return_value=False):
+            self.assertEqual(await manager.generate_content("prompt"), "fallback response")
+        manager.queue_manager.execute.assert_not_awaited()
+        manager._generate_openrouter.assert_awaited_once()
+
+    async def test_both_unavailable_raises_provider_error_not_empty_response(self):
+        manager = GeminiAPIManager()
+        manager._generate_openrouter = AsyncMock(side_effect=AIProviderUnavailableError("offline"))
+        with patch("app.services.gemini.ai_manager.gemini_cred_manager.has_healthy_credential", return_value=False):
+            with self.assertRaises(AIProviderUnavailableError):
+                await manager.generate_content("prompt")
+
+    async def test_genuine_empty_response_remains_distinct(self):
+        manager = GeminiAPIManager()
+        manager._generate_openrouter = AsyncMock(side_effect=AIResponseEmptyError("empty"))
+        with patch("app.services.gemini.ai_manager.gemini_cred_manager.has_healthy_credential", return_value=False):
+            with self.assertRaises(AIResponseEmptyError):
+                await manager.generate_content("prompt")
 
     async def test_openrouter_error_is_safe_and_does_not_log_secret(self):
         manager = GeminiAPIManager()
         with patch("app.services.gemini.ai_manager.httpx.AsyncClient", side_effect=Exception("test-secret")):
             with self.assertLogs("goddess_stream_manager", level="WARNING") as logs:
-                self.assertIsNone(await manager._generate_openrouter("prompt", None, 0.1, 10))
+                with self.assertRaises(AIProviderUnavailableError):
+                    await manager._generate_openrouter("prompt", None, 0.1, 10)
         self.assertNotIn("test-secret", "\n".join(logs.output))

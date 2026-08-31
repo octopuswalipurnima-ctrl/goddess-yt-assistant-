@@ -17,9 +17,15 @@ class Config:
     GEMINI_PRIMARY_MODEL = os.getenv("GEMINI_PRIMARY_MODEL", "gemini-2.5-flash")
     GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash-lite")
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-    OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL")
+    # A compact chat model keeps the emergency fallback inexpensive. Railway
+    # needs only OPENROUTER_API_KEY unless an operator deliberately overrides
+    # this choice.
+    OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
     OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-    OPENROUTER_ENABLED = os.getenv("OPENROUTER_ENABLED", "false").lower() == "true"
+    _openrouter_enabled = os.getenv("OPENROUTER_ENABLED")
+    # A supplied key enables the fallback by default; OPENROUTER_ENABLED=false
+    # remains an explicit operational opt-out.
+    OPENROUTER_ENABLED = bool(OPENROUTER_API_KEY) if _openrouter_enabled is None else _openrouter_enabled.lower() == "true"
     GEMINI_API_KEYS: list[str] = []
     YOUTUBE_API_KEYS: list[str] = []
 
@@ -43,7 +49,8 @@ class Config:
         warnings = []
         if not cls.SESSION_SECRET: warnings.append("SESSION_SECRET is not set; dashboard sessions use a generated unsafe fallback.")
         if not cls.GEMINI_API_KEYS: warnings.append("No Gemini key configured; AI moderation/co-host are disabled.")
-        if cls.OPENROUTER_ENABLED and (not cls.OPENROUTER_API_KEY or not cls.OPENROUTER_MODEL): warnings.append("OpenRouter fallback is enabled but incomplete; it will be skipped.")
+        if not cls.OPENROUTER_API_KEY: warnings.append("OpenRouter fallback is not configured.")
+        elif not cls.OPENROUTER_ENABLED: warnings.append("OpenRouter fallback is explicitly disabled.")
         if not cls.DISCORD_BOT_TOKEN: warnings.append("No Discord token configured; Discord event delivery is disabled.")
         return warnings
 

@@ -51,6 +51,10 @@ class CredentialManager:
         logger.error(f"[{self.service_name}] 🚨 FATAL: All configured projects are currently exhausted or in cooldown!")
         return None
 
+    def has_healthy_credential(self) -> bool:
+        """Check availability without rotating credentials or triggering retries."""
+        return any(credential.is_healthy() for credential in self.credentials)
+
 # Initialize Global Managers based on Config
 from app.utils.config import Config
 gemini_cred_manager = CredentialManager("Gemini_AI", Config.GEMINI_API_KEYS)
