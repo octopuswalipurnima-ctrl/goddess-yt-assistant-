@@ -32,9 +32,7 @@ MIGRATIONS = [("20260830_01_emergency_stop", [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS channel_id VARCHAR",
     "UPDATE users SET channel_id = youtube_id WHERE channel_id IS NULL AND youtube_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_channel_id ON users (channel_id)",
-]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", [
-    "ALTER TABLE streamers ADD COLUMN IF NOT EXISTS personality_mode VARCHAR NOT NULL DEFAULT 'cohost'",
-])]
+]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", [])]
 
 
 class MigrationError(RuntimeError):
@@ -131,6 +129,48 @@ def _reconcile_legacy_youtube_user_identity(conn) -> None:
             )
 
 
+def _reconcile_audit_streamer_scope(conn) -> None:
+    """Restore the stream foreign key expected by the AuditLog model.
+
+    Older Railway databases have audit rows but predate stream-scoped audit
+    events. Existing rows have no trustworthy streamer source, so the column
+    remains nullable for history while all new ORM writes supply it.
+    """
+    table_names = {name.lower() for name in inspect(conn).get_table_names()}
+    if "audit_logs" not in table_names:
+        return
+
+    columns = {column["name"].lower(): column for column in inspect(conn).get_columns("audit_logs")}
+    if "streamer_id" not in columns:
+        logger.info("Migration 20260831_05: adding nullable audit_logs.streamer_id")
+        conn.execute(text("ALTER TABLE audit_logs ADD COLUMN streamer_id INTEGER"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_logs_streamer_id ON audit_logs (streamer_id)"))
+
+    # PostgreSQL can attach the model's real relationship without rejecting
+    # historic rows. NOT VALID enforces the key for every future audit write;
+    # old NULL/unverifiable rows remain readable and untouched.
+    if conn.dialect.name == "postgresql" and "streamers" in table_names:
+        exists = conn.execute(text(
+            "SELECT 1 FROM pg_constraint WHERE conname = 'fk_audit_logs_streamer_id_streamers'"
+        )).first()
+        if not exists:
+            logger.info("Migration 20260831_05: adding audit_logs.streamer_id foreign key")
+            conn.execute(text(
+                "ALTER TABLE audit_logs ADD CONSTRAINT fk_audit_logs_streamer_id_streamers "
+                "FOREIGN KEY (streamer_id) REFERENCES streamers(id) NOT VALID"
+            ))
+
+
+def _reconcile_streamer_personality_mode(conn) -> None:
+    """Add the optional per-stream mode only when the streamer table exists."""
+    table_names = {name.lower() for name in inspect(conn).get_table_names()}
+    if "streamers" not in table_names:
+        return
+    columns = {column["name"].lower() for column in inspect(conn).get_columns("streamers")}
+    if "personality_mode" not in columns:
+        conn.execute(text("ALTER TABLE streamers ADD COLUMN personality_mode VARCHAR NOT NULL DEFAULT 'cohost'"))
+
+
 def _bootstrap(target_engine: Engine) -> None:
     # Register mapped tables before create_all when the runner is invoked
     # directly (rather than through the application import path).
@@ -160,6 +200,10 @@ def _apply_migrations(target_engine: Engine, migrations: Iterable[tuple[str, lis
                     _reconcile_direct_dashboard_audit_actor(conn)
                 elif version == "20260831_03_legacy_youtube_user_identity":
                     _reconcile_legacy_youtube_user_identity(conn)
+                elif version == "20260831_04_streamer_personality_mode":
+                    _reconcile_streamer_personality_mode(conn)
+                elif version == "20260831_05_audit_streamer_scope":
+                    _reconcile_audit_streamer_scope(conn)
                 for statement_index, statement in enumerate(statements, start=1):
                     try:
                         executable_statement = _statement_for_dialect(conn, statement)

@@ -588,13 +588,18 @@ async def train_bot_moderation(
     """
     streamer_id = request.session.get("streamer_id", 1)
     
-    result = await trainer_service.train_from_content(
-        db=db,
-        dev_username=dev_username,
-        streamer_id=streamer_id,
-        data_content=content,
-        input_type=input_type
-    )
+    try:
+        result = await trainer_service.train_from_content(
+            db=db,
+            dev_username=dev_username,
+            streamer_id=streamer_id,
+            data_content=content,
+            input_type=input_type
+        )
+    except Exception as exc:
+        db.rollback()
+        logger.exception("[AI TRAINING] Persistence failed type=%s", type(exc).__name__)
+        return RedirectResponse(url="/?error=training_persistence_failed", status_code=303)
 
     if result["success"]:
         return RedirectResponse(

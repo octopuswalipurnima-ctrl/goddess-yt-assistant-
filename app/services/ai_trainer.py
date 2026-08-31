@@ -81,18 +81,31 @@ class ModerationTrainer:
             rules_added += 1
             added_patterns.append(pattern)
 
-        # Log Audit Trail
+        # Keep rule writes and the audit trail in one transaction. If either
+        # fails, the caller receives a failure and no partial training result
+        # is committed for a later retry to duplicate.
         streamer = db.query(Streamer).filter(Streamer.id == streamer_id).first()
         dev_user = db.query(User).filter(User.username.ilike(f"%{dev_username}%")).first()
 
+        if not streamer:
+            db.rollback()
+            return {"success": False, "error": "The selected stream workspace no longer exists."}
+
         db.add(AuditLog(
             streamer_id=streamer_id,
-            user_id=dev_user.id if dev_user else streamer_id,
+            # Website login is optional, so do not invent a viewer primary key
+            # from a streamer id when no matching developer User exists.
+            user_id=dev_user.id if dev_user else None,
             action="TRAIN_AI_MODERATION",
             details=f"Dev {dev_username} trained {rules_added} rule(s) via {input_type}."
         ))
 
-        db.commit()
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("[AI TRAINER] Failed to persist rules and audit record")
+            raise
 
         logger.info(f"🧠 [AI TRAINER] Dev '{dev_username}' successfully trained {rules_added} rules for Streamer #{streamer_id}.")
 
