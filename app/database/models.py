@@ -29,6 +29,9 @@ class Streamer(Base):
 
     # --- DASHBOARD & DISCORD SETTINGS ---
     ai_cohost_enabled = Column(Boolean, default=True)
+    # Kept on the streamer so one channel cannot alter another channel's AI
+    # tone.  ``cohost`` preserves the previous production default.
+    personality_mode = Column(String, nullable=False, default="cohost")
     giveaway_reminders_enabled = Column(Boolean, default=False)
     
     # Secure Sync Code and Routing IDs

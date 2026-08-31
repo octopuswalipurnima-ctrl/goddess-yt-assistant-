@@ -54,17 +54,50 @@ class YouTubeAPIManager:
             item = items[0]
             channel_id = item["snippet"]["channelId"]
             chat_id = item.get("liveStreamingDetails", {}).get("activeLiveChatId")
-            return channel_id, chat_id
+            return channel_id, chat_id, {
+                "channel_name": item["snippet"].get("channelTitle"),
+                "stream_title": item["snippet"].get("title"),
+            }
 
         try:
-            channel_id, chat_id = await self.queue_manager.execute(Priority.NORMAL, _raw_fetch)
+            channel_id, chat_id, metadata = await self.queue_manager.execute(Priority.NORMAL, _raw_fetch)
             if channel_id and chat_id:
                 # Cache valid stream IDs for 2 hours (7200 seconds)
-                global_cache.set(cache_key, {"channel_id": channel_id, "chat_id": chat_id}, ttl_seconds=7200)
+                global_cache.set(cache_key, {"channel_id": channel_id, "chat_id": chat_id, **metadata}, ttl_seconds=7200)
             return channel_id, chat_id
         except Exception as e:
             logger.error(f"[YT API MANAGER] Error fetching stream info for video {video_id}: {e}")
             return None, None
+
+    def stream_metadata(self, video_id: str) -> Dict[str, Any]:
+        """Return metadata captured with the current video, never another stream."""
+        cached = global_cache.get(f"yt_video_chat:{video_id}") or {}
+        return {
+            "channel_name": cached.get("channel_name"),
+            "stream_title": cached.get("stream_title"),
+        }
+
+    async def get_bot_identity(self) -> Dict[str, Optional[str]]:
+        """Read the authenticated YouTube account once and cache it briefly."""
+        cache_key = "yt_authenticated_bot_identity"
+        cached = global_cache.get(cache_key)
+        if cached:
+            return cached
+
+        async def _raw_fetch():
+            await self.rate_limiter.acquire(1)
+            service = self._get_service()
+            items = service.channels().list(part="snippet", mine=True).execute().get("items", [])
+            snippet = items[0].get("snippet", {}) if items else {}
+            return {"bot_name": snippet.get("title"), "bot_handle": snippet.get("customUrl")}
+
+        try:
+            identity = await self.queue_manager.execute(Priority.LOW, _raw_fetch)
+        except Exception as exc:
+            logger.warning("[YT IDENTITY] Unable to load bot identity type=%s", type(exc).__name__)
+            identity = {"bot_name": None, "bot_handle": None}
+        global_cache.set(cache_key, identity, ttl_seconds=600)
+        return identity
 
     # ---------------------------------------------------------
     # 2. CHAT POLLED READING (NORMAL PRIORITY)

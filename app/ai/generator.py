@@ -9,24 +9,46 @@ from app.services.common.queue_manager import Priority
 
 logger = logging.getLogger("goddess_stream_manager")
 
+PERSONALITY_RULES = {
+    "roast": "Playful, light teasing only; never cruel, hateful, or personal.",
+    "friendly_helpful": "Warm, concise, respectful, and directly helpful.",
+    "cohost": "Be a witty, supportive live-stream co-host; keep chat moving naturally.",
+    "hypemaker": "Use short, high-energy celebration and encouragement; do not spam.",
+}
+DEFAULT_PERSONALITY_MODE = "cohost"
+
 class AIBrain:
     def __init__(self):
         # Calls are routed through GeminiAPIManager, which owns model fallback
         # and key cooldown/rotation. Keep no second hard-coded model here.
         self.model_name = None
         
-        # Goddess-specific BGMI streamer personality framework
+        # Static rules are deliberately creator-neutral. Live identity arrives
+        # in the compact runtime context below, never from a stale prompt.
         self.base_persona = (
-            "You are an expert AI Stream Co-Host for a popular female BGMI (Battlegrounds Mobile India) "
-            "streamer named 'Goddess'. Goddess plays at a highly competitive level without a gyroscope "
-            "(No-Gyro player) focusing on master-class lens sensitivity and flawless AR/shotgun recoil control.\n\n"
-            "Your personality is hype, gamer-centric, supportive, witty, and deeply loyal to the community. "
-            "The chat might affectionately call you 'honey' or 'honey bunny'—when they do, reply with a warm, playful, and affectionate tone. "
-            "Use standard streaming lingo (e.g., 'cooking', 'clutch', 'choke', 'lobby', 'OP', 'rush'). Keep responses "
-            "short, snappy, single-sentence, and perfectly timed. Never sound like a generic text bot."
+            "You are a concise YouTube live-chat AI assistant. Current stream metadata is authoritative; "
+            "never claim to be on another creator's stream or invent a user handle."
         )
 
-    async def generate_chat_reaction(self, direct_prompt: list, recent_messages: list) -> str:
+    def system_instruction_for(self, stream_context: Dict[str, str] | None) -> str:
+        """Build one compact, provider-neutral live context block per request."""
+        context = stream_context or {}
+        mode = context.get("personality_mode", DEFAULT_PERSONALITY_MODE)
+        mode = mode if mode in PERSONALITY_RULES else DEFAULT_PERSONALITY_MODE
+        stream_name = context.get("channel_name") or "Unknown channel"
+        stream_handle = context.get("channel_handle") or "unknown"
+        title = context.get("stream_title") or "live stream"
+        bot_name = context.get("bot_name") or "YouTube bot"
+        bot_handle = context.get("bot_handle") or "unknown"
+        return (
+            f"{self.base_persona}\n"
+            f"CURRENT_STREAM channel={stream_name}; handle={stream_handle}; title={title}.\n"
+            f"BOT_IDENTITY name={bot_name}; handle={bot_handle}.\n"
+            f"MODE {mode}: {PERSONALITY_RULES[mode]}\n"
+            "Use one @ for any supplied viewer mention. Keep replies short."
+        )
+
+    async def generate_chat_reaction(self, direct_prompt: list, recent_messages: list, stream_context: Dict[str, str] | None = None) -> str:
         # Format context data for Gemini
         formatted_logs = "\n".join([f"{msg.get('username', 'User')}: {msg.get('text', '')}" for msg in recent_messages])
         
@@ -42,7 +64,7 @@ class AIBrain:
         try:
             response_text = await gemini_api_manager.generate_content(
                 prompt=prompt,
-                system_instruction=self.base_persona,
+                system_instruction=self.system_instruction_for(stream_context),
                 temperature=0.8,
                 max_output_tokens=60,
                 priority=Priority.LOW
