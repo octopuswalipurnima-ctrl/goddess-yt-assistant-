@@ -39,6 +39,12 @@ class DashboardDirectEntryTests(unittest.TestCase):
         self.assertIn("Goddess AI", root.text)
         self.assertNotIn("Sign in", root.text)
         self.assertNotIn("Log in", root.text)
+        from app.database.models import User
+        db = connection.SessionLocal()
+        try:
+            self.assertIsNone(db.query(User).filter_by(youtube_id="dashboard-direct-entry").first())
+        finally:
+            db.close()
         self.assertEqual(self.client.get("/login", follow_redirects=False).status_code, 404)
         self.assertEqual(self.client.get("/auth", follow_redirects=False).status_code, 404)
 

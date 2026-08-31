@@ -89,51 +89,44 @@ templates = Jinja2Templates(directory="templates")
 # ---------------------------------------------------------
 # SECURITY: ROLE-BASED ACCESS CONTROL (RBAC)
 # ---------------------------------------------------------
-def ensure_direct_dashboard_identity(request: Request, db: Session) -> tuple[User, Streamer]:
-    """Initialize the local dashboard workspace without a login flow."""
-    user = db.query(User).filter_by(youtube_id="dashboard-direct-entry").first()
-    if not user:
-        user = User(youtube_id="dashboard-direct-entry", username="Dashboard")
-        db.add(user); db.flush()
+def ensure_direct_dashboard_workspace(request: Request, db: Session) -> Streamer:
+    """Initialize a dashboard workspace without fabricating a website user."""
     streamer = db.query(Streamer).order_by(Streamer.id.asc()).first()
     if not streamer:
         streamer = Streamer(youtube_channel_id=None, channel_name="Dashboard Channel", is_active=False)
         db.add(streamer); db.flush()
     db.commit()
-    request.session.update({"user_id": user.id, "streamer_id": request.session.get("streamer_id") or streamer.id, "streamer_name": streamer.channel_name})
-    return user, streamer
+    # Clear the retired website-login principal.  A dashboard workspace is
+    # selected by its streamer id, not by a fabricated row in `users`.
+    request.session.pop("user_id", None)
+    request.session.update({"streamer_id": request.session.get("streamer_id") or streamer.id, "streamer_name": streamer.channel_name})
+    return streamer
 
 
 def require_role(allowed_roles: list):
     async def role_checker(request: Request, db: Session = Depends(get_db)):
         active_dashboard_id = request.session.get("streamer_id")
         if not active_dashboard_id:
-            _, streamer = ensure_direct_dashboard_identity(request, db)
+            streamer = ensure_direct_dashboard_workspace(request, db)
             active_dashboard_id = streamer.id
 
-        logged_in_user_id = request.session.get("user_id")
-        current_role = None
-
         streamer = db.query(Streamer).filter(Streamer.id == active_dashboard_id).first()
-        
-        if logged_in_user_id and streamer:
-            current_role = "owner"
+        current_role = "owner" if streamer else None
 
         if not current_role or current_role not in allowed_roles:
             try:
-                if logged_in_user_id:
-                    db.add(AuditLog(
-                        streamer_id=active_dashboard_id,
-                        user_id=logged_in_user_id,
-                        action="UNAUTHORIZED_ACCESS_ATTEMPT",
-                        details=f"Attempted to access restricted route requiring {allowed_roles}"
-                    ))
-                    db.commit()
+                db.add(AuditLog(
+                    streamer_id=active_dashboard_id,
+                    user_id=None,
+                    action="UNAUTHORIZED_ACCESS_ATTEMPT",
+                    details=f"Attempted to access restricted route requiring {allowed_roles}"
+                ))
+                db.commit()
             except Exception:
                 db.rollback()
             raise HTTPException(status_code=303, headers={"Location": "/?error=unauthorized_role"})
             
-        return {"user_id": logged_in_user_id, "role": current_role}
+        return {"user_id": None, "role": current_role}
     return role_checker
 
 
@@ -174,8 +167,8 @@ def subscribe_websub(channel_uc_id: str, mode: str = "subscribe") -> bool:
 @app.get("/switch-workspace/{target_id}")
 async def switch_workspace(target_id: int, request: Request, db: Session = Depends(get_db)):
     try:
-        if not request.session.get("user_id"):
-            ensure_direct_dashboard_identity(request, db)
+        if not request.session.get("streamer_id"):
+            ensure_direct_dashboard_workspace(request, db)
             
         streamer = db.query(Streamer).filter(Streamer.id == target_id).first()
         if not streamer:
@@ -195,14 +188,12 @@ async def switch_workspace(target_id: int, request: Request, db: Session = Depen
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     try:
-        logged_in_user_id = request.session.get("user_id")
-        user = db.query(User).filter(User.id == logged_in_user_id).first()
-        if not user:
-            user, _ = ensure_direct_dashboard_identity(request, db)
-
+        # A stale cookie from the retired website-login flow must not become a
+        # dashboard identity or trigger a users-table write.
+        request.session.pop("user_id", None)
         my_streamer = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
         if not my_streamer:
-            _, my_streamer = ensure_direct_dashboard_identity(request, db)
+            my_streamer = ensure_direct_dashboard_workspace(request, db)
 
         active_streamer_id = request.session.get("streamer_id")
         if not active_streamer_id:
@@ -345,32 +336,15 @@ async def generate_team_invite(
 @app.get("/invite/{invite_code}")
 async def accept_team_invite(invite_code: str, request: Request, db: Session = Depends(get_db)):
     try:
-        logged_in_user_id = request.session.get("user_id")
-        
-        if not logged_in_user_id and request.session.get("streamer_id"):
-            st = db.query(Streamer).filter(Streamer.id == request.session.get("streamer_id")).first()
-            if st:
-                u = db.query(User).filter(User.youtube_id == st.youtube_channel_id).first()
-                if u:
-                    logged_in_user_id = u.id
-                    request.session["user_id"] = u.id
-
-        if not logged_in_user_id:
-            user, _ = ensure_direct_dashboard_identity(request, db)
-            logged_in_user_id = user.id
-            
         invite = db.query(TeamInvite).filter(TeamInvite.invite_code == invite_code, TeamInvite.is_used == False).first()
         
         if not invite or invite.expires_at < datetime.now(timezone.utc):
             return RedirectResponse(url="/?error=invalid_invite", status_code=303)
             
-        existing = db.query(TeamMember).filter(TeamMember.streamer_id == invite.streamer_id, TeamMember.user_id == logged_in_user_id).first()
-        
-        if not existing:
-            db.add(TeamMember(streamer_id=invite.streamer_id, user_id=logged_in_user_id, role=invite.role))
-            db.add(AuditLog(streamer_id=invite.streamer_id, user_id=logged_in_user_id, action="JOINED_TEAM", details=f"Joined team via invite as {invite.role}."))
-            
+        # Website login has been retired, so an invite selects a workspace but
+        # does not manufacture a `users` identity or a fake team membership.
         invite.is_used = True
+        db.add(AuditLog(streamer_id=invite.streamer_id, user_id=None, action="JOINED_TEAM", details=f"Direct dashboard invite accepted as {invite.role}."))
         db.commit()
         
         request.session["streamer_id"] = invite.streamer_id

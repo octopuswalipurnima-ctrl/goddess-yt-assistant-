@@ -26,6 +26,16 @@ MIGRATIONS = [("20260830_01_emergency_stop", [
     # default preserves the model's server-side first_seen behavior.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS first_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP WITH TIME ZONE",
+]), ("20260831_01_user_channel_identity", [
+    # Production's legacy schema requires `channel_id`; map it explicitly so
+    # ORM inserts for real YouTube viewers satisfy that constraint.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS channel_id VARCHAR",
+    "UPDATE users SET channel_id = youtube_id WHERE channel_id IS NULL AND youtube_id IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_channel_id ON users (channel_id)",
+]), ("20260831_02_direct_dashboard_audit_actor", [
+    # Dashboard direct-entry has no authenticated web user.  Preserve audit
+    # records while allowing their actor to be absent rather than synthetic.
+    "ALTER TABLE audit_logs ALTER COLUMN user_id DROP NOT NULL",
 ])]
 
 
@@ -40,6 +50,10 @@ def _statement_for_dialect(conn, statement: str) -> str | None:
     """SQLite lacks ALTER TABLE ADD COLUMN IF NOT EXISTS; preserve PostgreSQL SQL."""
     if conn.dialect.name != "sqlite":
         return statement
+    if statement == "ALTER TABLE audit_logs ALTER COLUMN user_id DROP NOT NULL":
+        # SQLite does not support ALTER COLUMN and has no equivalent needed for
+        # the test schema, where this column is created nullable by the model.
+        return None
     match = SQLITE_ADD_COLUMN_IF_NOT_EXISTS.match(statement)
     if not match:
         return statement

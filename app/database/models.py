@@ -3,6 +3,11 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database.connection import Base
 
+
+def _channel_id_from_youtube_id(context):
+    """Keep the legacy required channel identity aligned with YouTube identity."""
+    return context.get_current_parameters().get("youtube_id")
+
 # --- The SaaS Streamer Table ---
 class Streamer(Base):
     __tablename__ = "streamers"
@@ -86,6 +91,10 @@ class User(Base):
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
+    # `channel_id` is the legacy, required YouTube channel identity in the
+    # production schema.  `youtube_id` is the newer name used by the bot.
+    # Store the same real YouTube identifier in both during the transition.
+    channel_id = Column(String, unique=True, index=True, nullable=False, default=_channel_id_from_youtube_id)
     youtube_id = Column(String, unique=True, index=True)
     username = Column(String)
     first_seen = Column(DateTime(timezone=True), server_default=func.now())
@@ -149,7 +158,9 @@ class AuditLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     streamer_id = Column(Integer, ForeignKey("streamers.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    # Direct dashboard mode has no website user principal.  Operational events
+    # remain stream-scoped and auditable without fabricating a viewer record.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     action = Column(String, nullable=False)  # e.g., 'TOGGLE_AI_COHOST', 'CREATE_COMMAND'
     details = Column(String, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())

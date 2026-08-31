@@ -1,6 +1,7 @@
 import unittest
 
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import sessionmaker
 
 from migrations.runner import MigrationError, run
 
@@ -21,9 +22,12 @@ class MigrationRunnerTests(unittest.TestCase):
         self.assertIn("20260830_01_emergency_stop", self.versions())
         self.assertIn("20260830_02_user_youtube_identity", self.versions())
         self.assertIn("20260830_03_user_timestamps", self.versions())
+        self.assertIn("20260831_01_user_channel_identity", self.versions())
+        self.assertIn("20260831_02_direct_dashboard_audit_actor", self.versions())
         self.assertIn("emergency_reason", {column["name"] for column in inspect(self.engine).get_columns("system_state")})
         self.assertIn("youtube_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
         self.assertTrue({"first_seen", "last_seen"}.issubset({column["name"] for column in inspect(self.engine).get_columns("users")}))
+        self.assertIn("channel_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
         run(self.engine)
         self.assertEqual(self.versions().count("20260830_01_emergency_stop"), 1)
         self.assertEqual(self.versions().count("20260830_02_user_youtube_identity"), 1)
@@ -49,6 +53,17 @@ class MigrationRunnerTests(unittest.TestCase):
             conn.execute(text("INSERT INTO users(id, username, youtube_id) VALUES (1, 'one', 'UC-one')"))
             with self.assertRaises(Exception):
                 conn.execute(text("INSERT INTO users(id, username, youtube_id) VALUES (2, 'two', 'UC-one')"))
+
+    def test_real_youtube_user_populates_required_legacy_channel_id(self):
+        run(self.engine)
+        from app.database.models import User
+        db = sessionmaker(bind=self.engine)()
+        try:
+            viewer = User(youtube_id="UC-real-viewer", username="Viewer")
+            db.add(viewer); db.commit()
+            self.assertEqual(viewer.channel_id, "UC-real-viewer")
+        finally:
+            db.close()
 
     def test_failed_migration_rolls_back_and_stops(self):
         with self.engine.begin() as conn:
