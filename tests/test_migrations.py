@@ -30,6 +30,7 @@ class MigrationRunnerTests(unittest.TestCase):
         self.assertIn("20260831_07_audit_log_schema_complete", self.versions())
         self.assertIn("20260831_08_youtube_daily_usage_window", self.versions())
         self.assertIn("20260831_09_audit_logs_channel_identity", self.versions())
+        self.assertIn("20260831_10_audit_logs_nullable_user_id", self.versions())
         self.assertIn("emergency_reason", {column["name"] for column in inspect(self.engine).get_columns("system_state")})
         self.assertIn("youtube_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
         self.assertTrue({"first_seen", "last_seen"}.issubset({column["name"] for column in inspect(self.engine).get_columns("users")}))

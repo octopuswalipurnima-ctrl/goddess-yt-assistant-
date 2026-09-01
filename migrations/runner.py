@@ -32,7 +32,7 @@ MIGRATIONS = [("20260830_01_emergency_stop", [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS channel_id VARCHAR",
     "UPDATE users SET channel_id = youtube_id WHERE channel_id IS NULL AND youtube_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_channel_id ON users (channel_id)",
-]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", []), ("20260831_07_audit_log_schema_complete", []), ("20260831_08_youtube_daily_usage_window", []), ("20260831_09_audit_logs_channel_identity", [])]
+]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", []), ("20260831_07_audit_log_schema_complete", []), ("20260831_08_youtube_daily_usage_window", []), ("20260831_09_audit_logs_channel_identity", []), ("20260831_10_audit_logs_nullable_user_id", [])]
 
 
 class MigrationError(RuntimeError):
@@ -75,12 +75,10 @@ def _reconcile_direct_dashboard_audit_actor(conn) -> None:
         conn.execute(text("ALTER TABLE audit_logs ADD COLUMN user_id INTEGER"))
         return
 
-    if user_column.get("nullable", True):
-        return
     if conn.dialect.name == "postgresql":
-        logger.info("Migration 20260831_02: making audit_logs.user_id nullable")
+        logger.info("Migration 20260831_02: ensuring audit_logs.user_id is nullable")
         conn.execute(text("ALTER TABLE audit_logs ALTER COLUMN user_id DROP NOT NULL"))
-    else:
+    elif not user_column.get("nullable", True):
         # SQLite cannot alter column nullability.  Fresh SQLite databases are
         # created from the nullable ORM model; preserving a legacy NOT NULL
         # constraint is safe because no direct-dashboard audit insert supplies
@@ -247,10 +245,7 @@ def _bootstrap(target_engine: Engine) -> None:
     # Register mapped tables before create_all when the runner is invoked
     # directly (rather than through the application import path).
     from app.database import models  # noqa: F401
-    if target_engine is engine:
-        init_db()
-    else:
-        Base.metadata.create_all(bind=target_engine)
+    Base.metadata.create_all(bind=target_engine)
 
 
 def _apply_migrations(target_engine: Engine, migrations: Iterable[tuple[str, list[str]]]) -> None:
@@ -283,6 +278,9 @@ def _apply_migrations(target_engine: Engine, migrations: Iterable[tuple[str, lis
                 elif version == "20260831_08_youtube_daily_usage_window":
                     _reconcile_youtube_daily_usage_window(conn)
                 elif version == "20260831_09_audit_logs_channel_identity":
+                    _reconcile_audit_log_schema_complete(conn)
+                elif version == "20260831_10_audit_logs_nullable_user_id":
+                    _reconcile_direct_dashboard_audit_actor(conn)
                     _reconcile_audit_log_schema_complete(conn)
                 for statement_index, statement in enumerate(statements, start=1):
                     try:

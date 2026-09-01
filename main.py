@@ -702,6 +702,11 @@ running_tasks = []
 @app.on_event("startup")
 async def startup_event():
     init_db()
+    try:
+        from migrations.runner import run as run_migrations
+        run_migrations(bootstrap=False)
+    except Exception as e:
+        logger.warning("[STARTUP] Migration runner note: %s", e)
     db = SessionLocal()
     try:
         monitored_streamers = ensure_monitored_channels(db)

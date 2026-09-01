@@ -18,6 +18,7 @@ def init_db():
     from app.database import models  # register models before schema creation
     Base.metadata.create_all(bind=engine)
 
+
 def get_db():
     db = SessionLocal()
     try:
