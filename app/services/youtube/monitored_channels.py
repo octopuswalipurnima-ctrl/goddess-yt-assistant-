@@ -32,6 +32,8 @@ def ensure_monitored_channels(db: Session) -> list[Streamer]:
                 streamer_id=streamer.id,
                 channel_id=channel_id,
                 user_id=None,
+                actor_user_id=None,
+                actor_username="system",
                 action="MONITORED_CHANNEL_REGISTERED",
                 details=channel_id,
             ))

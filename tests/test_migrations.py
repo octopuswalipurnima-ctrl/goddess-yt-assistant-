@@ -32,6 +32,7 @@ class MigrationRunnerTests(unittest.TestCase):
         self.assertIn("20260831_09_audit_logs_channel_identity", self.versions())
         self.assertIn("20260831_10_audit_logs_nullable_user_id", self.versions())
         self.assertIn("20260831_11_audit_logs_actor_user_id_compat", self.versions())
+        self.assertIn("20260831_12_audit_logs_actor_username_compat", self.versions())
         self.assertIn("emergency_reason", {column["name"] for column in inspect(self.engine).get_columns("system_state")})
         self.assertIn("youtube_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
         self.assertTrue({"first_seen", "last_seen"}.issubset({column["name"] for column in inspect(self.engine).get_columns("users")}))
@@ -39,6 +40,7 @@ class MigrationRunnerTests(unittest.TestCase):
         self.assertIn("youtube_api_window_date", {column["name"] for column in inspect(self.engine).get_columns("system_state")})
         self.assertIn("youtube_user_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
         self.assertIn("actor_user_id", {column["name"] for column in inspect(self.engine).get_columns("audit_logs")})
+        self.assertIn("actor_username", {column["name"] for column in inspect(self.engine).get_columns("audit_logs")})
         run(self.engine)
         self.assertEqual(self.versions().count("20260830_01_emergency_stop"), 1)
         self.assertEqual(self.versions().count("20260830_02_user_youtube_identity"), 1)
@@ -174,19 +176,23 @@ class MigrationRunnerTests(unittest.TestCase):
             conn.execute(text("INSERT INTO audit_logs(id, streamer_id, user_id, actor_user_id, action) VALUES (4, 1, 2, NULL, 'ACTION_4')"))
         run(self.engine, bootstrap=False)
         with self.engine.connect() as conn:
-            row1 = conn.execute(text("SELECT user_id, actor_user_id FROM audit_logs WHERE id = 1")).one()
+            row1 = conn.execute(text("SELECT user_id, actor_user_id, actor_username FROM audit_logs WHERE id = 1")).one()
             self.assertEqual(row1[0], 1)
             self.assertEqual(row1[1], "1")
+            self.assertEqual(row1[2], "viewer_one")
 
-            row2 = conn.execute(text("SELECT user_id, actor_user_id FROM audit_logs WHERE id = 2")).one()
+            row2 = conn.execute(text("SELECT user_id, actor_user_id, actor_username FROM audit_logs WHERE id = 2")).one()
             self.assertEqual(row2[0], 2)
             self.assertEqual(row2[1], "UC-2")
+            self.assertEqual(row2[2], "viewer_two")
 
-            row3 = conn.execute(text("SELECT user_id, actor_user_id FROM audit_logs WHERE id = 3")).one()
+            row3 = conn.execute(text("SELECT user_id, actor_user_id, actor_username FROM audit_logs WHERE id = 3")).one()
             self.assertIsNone(row3[0])
             self.assertEqual(row3[1], "system_boot")
+            self.assertEqual(row3[2], "system")
 
-            row4 = conn.execute(text("SELECT user_id, actor_user_id FROM audit_logs WHERE id = 4")).one()
+            row4 = conn.execute(text("SELECT user_id, actor_user_id, actor_username FROM audit_logs WHERE id = 4")).one()
             self.assertEqual(row4[0], 2)
             self.assertEqual(row4[1], "2")
+            self.assertEqual(row4[2], "viewer_two")
 

@@ -59,6 +59,38 @@ def _user_id_from_actor_user_id(context):
             return int(actor_id)
     return None
 
+
+def _actor_username_from_context(context):
+    """Populate actor_username from explicit param, user record lookup, or system default."""
+    params = context.get_current_parameters()
+    if params.get("actor_username"):
+        return params.get("actor_username")
+    user_id = params.get("user_id")
+    if user_id is not None:
+        try:
+            from sqlalchemy import text
+            username = context.connection.execute(
+                text("SELECT username FROM users WHERE id = :uid"),
+                {"uid": user_id}
+            ).scalar()
+            if username:
+                return username
+        except Exception:
+            pass
+    actor_user_id = params.get("actor_user_id")
+    if actor_user_id:
+        try:
+            from sqlalchemy import text
+            username = context.connection.execute(
+                text("SELECT username FROM users WHERE channel_id = :aid OR youtube_id = :aid OR youtube_user_id = :aid OR CAST(id AS TEXT) = :aid"),
+                {"aid": str(actor_user_id)}
+            ).scalar()
+            if username:
+                return username
+        except Exception:
+            pass
+    return "system"
+
 # --- The SaaS Streamer Table ---
 class Streamer(Base):
     __tablename__ = "streamers"
@@ -219,6 +251,7 @@ class AuditLog(Base):
     # remain stream-scoped and auditable without fabricating a viewer record.
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, default=_user_id_from_actor_user_id)
     actor_user_id = Column(String, nullable=True, default=_actor_user_id_from_user_id)
+    actor_username = Column(String, nullable=True, default=_actor_username_from_context)
     action = Column(String, nullable=False)  # e.g., 'TOGGLE_AI_COHOST', 'CREATE_COMMAND'
     details = Column(String, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())

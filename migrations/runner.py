@@ -32,7 +32,7 @@ MIGRATIONS = [("20260830_01_emergency_stop", [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS channel_id VARCHAR",
     "UPDATE users SET channel_id = youtube_id WHERE channel_id IS NULL AND youtube_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_channel_id ON users (channel_id)",
-]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", []), ("20260831_07_audit_log_schema_complete", []), ("20260831_08_youtube_daily_usage_window", []), ("20260831_09_audit_logs_channel_identity", []), ("20260831_10_audit_logs_nullable_user_id", []), ("20260831_11_audit_logs_actor_user_id_compat", [])]
+]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", []), ("20260831_07_audit_log_schema_complete", []), ("20260831_08_youtube_daily_usage_window", []), ("20260831_09_audit_logs_channel_identity", []), ("20260831_10_audit_logs_nullable_user_id", []), ("20260831_11_audit_logs_actor_user_id_compat", []), ("20260831_12_audit_logs_actor_username_compat", [])]
 
 
 class MigrationError(RuntimeError):
@@ -80,10 +80,16 @@ def _reconcile_direct_dashboard_audit_actor(conn) -> None:
         conn.execute(text("ALTER TABLE audit_logs ADD COLUMN actor_user_id VARCHAR"))
         columns = {column["name"].lower(): column for column in inspect(conn).get_columns("audit_logs")}
 
+    if "actor_username" not in columns:
+        logger.info("Migration 20260831_02: adding missing nullable audit_logs.actor_username")
+        conn.execute(text("ALTER TABLE audit_logs ADD COLUMN actor_username VARCHAR"))
+        columns = {column["name"].lower(): column for column in inspect(conn).get_columns("audit_logs")}
+
     if conn.dialect.name == "postgresql":
         logger.info("Migration 20260831_02: ensuring audit_logs actor columns are nullable")
         conn.execute(text("ALTER TABLE audit_logs ALTER COLUMN user_id DROP NOT NULL"))
         conn.execute(text("ALTER TABLE audit_logs ALTER COLUMN actor_user_id DROP NOT NULL"))
+        conn.execute(text("ALTER TABLE audit_logs ALTER COLUMN actor_username DROP NOT NULL"))
 
     # Synchronize historic values between user_id and actor_user_id
     if "user_id" in columns and "actor_user_id" in columns:
@@ -129,6 +135,34 @@ def _reconcile_direct_dashboard_audit_actor(conn) -> None:
                     f"  AND actor_user_id IS NOT NULL "
                     f"  AND EXISTS (SELECT 1 FROM users WHERE ({match_sql}))"
                 ))
+
+    # Synchronize actor_username
+    if "actor_username" in columns:
+        if "users" in table_names and "user_id" in columns:
+            user_cols = {column["name"].lower() for column in inspect(conn).get_columns("users")}
+            if "username" in user_cols:
+                if conn.dialect.name == "postgresql":
+                    conn.execute(text(
+                        "UPDATE audit_logs "
+                        "SET actor_username = users.username "
+                        "FROM users "
+                        "WHERE audit_logs.actor_username IS NULL "
+                        "  AND audit_logs.user_id = users.id "
+                        "  AND users.username IS NOT NULL"
+                    ))
+                else:
+                    conn.execute(text(
+                        "UPDATE audit_logs "
+                        "SET actor_username = (SELECT username FROM users WHERE users.id = audit_logs.user_id) "
+                        "WHERE actor_username IS NULL "
+                        "  AND user_id IS NOT NULL "
+                        "  AND EXISTS (SELECT 1 FROM users WHERE users.id = audit_logs.user_id AND username IS NOT NULL)"
+                    ))
+        conn.execute(text(
+            "UPDATE audit_logs "
+            "SET actor_username = 'system' "
+            "WHERE actor_username IS NULL"
+        ))
 
 
 def _reconcile_legacy_youtube_user_identity(conn) -> None:
@@ -328,6 +362,9 @@ def _apply_migrations(target_engine: Engine, migrations: Iterable[tuple[str, lis
                     _reconcile_direct_dashboard_audit_actor(conn)
                     _reconcile_audit_log_schema_complete(conn)
                 elif version == "20260831_11_audit_logs_actor_user_id_compat":
+                    _reconcile_direct_dashboard_audit_actor(conn)
+                    _reconcile_audit_log_schema_complete(conn)
+                elif version == "20260831_12_audit_logs_actor_username_compat":
                     _reconcile_direct_dashboard_audit_actor(conn)
                     _reconcile_audit_log_schema_complete(conn)
                 for statement_index, statement in enumerate(statements, start=1):

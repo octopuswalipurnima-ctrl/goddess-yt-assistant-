@@ -93,6 +93,7 @@ class DashboardDirectEntryTests(unittest.TestCase):
             self.assertTrue(all(log.channel_id in MONITORED_CHANNEL_IDS for log in logs))
             self.assertTrue(all(log.user_id is None for log in logs))
             self.assertTrue(all(log.actor_user_id is None for log in logs))
+            self.assertTrue(all(log.actor_username == "system" for log in logs))
         finally:
             db.close()
 
