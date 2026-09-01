@@ -34,6 +34,18 @@ def _channel_id_from_streamer(context):
             pass
     return None
 
+
+def _actor_user_id_from_user_id(context):
+    """Keep deployed legacy actor_user_id aligned with user_id."""
+    params = context.get_current_parameters()
+    return params.get("actor_user_id") if params.get("actor_user_id") is not None else params.get("user_id")
+
+
+def _user_id_from_actor_user_id(context):
+    """Keep user_id aligned with legacy actor_user_id."""
+    params = context.get_current_parameters()
+    return params.get("user_id") if params.get("user_id") is not None else params.get("actor_user_id")
+
 # --- The SaaS Streamer Table ---
 class Streamer(Base):
     __tablename__ = "streamers"
@@ -192,7 +204,8 @@ class AuditLog(Base):
     channel_id = Column(String, index=True, nullable=False, default=_channel_id_from_streamer)
     # Direct dashboard mode has no website user principal.  Operational events
     # remain stream-scoped and auditable without fabricating a viewer record.
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, default=_user_id_from_actor_user_id)
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, default=_actor_user_id_from_user_id)
     action = Column(String, nullable=False)  # e.g., 'TOGGLE_AI_COHOST', 'CREATE_COMMAND'
     details = Column(String, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())

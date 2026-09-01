@@ -32,7 +32,7 @@ MIGRATIONS = [("20260830_01_emergency_stop", [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS channel_id VARCHAR",
     "UPDATE users SET channel_id = youtube_id WHERE channel_id IS NULL AND youtube_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_channel_id ON users (channel_id)",
-]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", []), ("20260831_07_audit_log_schema_complete", []), ("20260831_08_youtube_daily_usage_window", []), ("20260831_09_audit_logs_channel_identity", []), ("20260831_10_audit_logs_nullable_user_id", [])]
+]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", []), ("20260831_07_audit_log_schema_complete", []), ("20260831_08_youtube_daily_usage_window", []), ("20260831_09_audit_logs_channel_identity", []), ("20260831_10_audit_logs_nullable_user_id", []), ("20260831_11_audit_logs_actor_user_id_compat", [])]
 
 
 class MigrationError(RuntimeError):
@@ -59,8 +59,9 @@ def _reconcile_direct_dashboard_audit_actor(conn) -> None:
     """Align legacy audit_logs schemas with the nullable AuditLog.actor field.
 
     Some deployed databases predate the RBAC audit model and have no user_id
-    at all.  Others have it as NOT NULL.  Inspect first so this migration is
-    safe across both histories; dashboard startup must not fabricate a User.
+    or actor_user_id at all.  Others have them as NOT NULL.  Inspect first so
+    this migration is safe across both histories; dashboard startup must not
+    fabricate a User.
     """
     table_names = {name.lower() for name in inspect(conn).get_table_names()}
     if "audit_logs" not in table_names:
@@ -69,21 +70,31 @@ def _reconcile_direct_dashboard_audit_actor(conn) -> None:
         return
 
     columns = {column["name"].lower(): column for column in inspect(conn).get_columns("audit_logs")}
-    user_column = columns.get("user_id")
-    if user_column is None:
+    if "user_id" not in columns:
         logger.info("Migration 20260831_02: adding missing nullable audit_logs.user_id")
         conn.execute(text("ALTER TABLE audit_logs ADD COLUMN user_id INTEGER"))
-        return
+        columns = {column["name"].lower(): column for column in inspect(conn).get_columns("audit_logs")}
+
+    if "actor_user_id" not in columns:
+        logger.info("Migration 20260831_02: adding missing nullable audit_logs.actor_user_id")
+        conn.execute(text("ALTER TABLE audit_logs ADD COLUMN actor_user_id INTEGER"))
+        columns = {column["name"].lower(): column for column in inspect(conn).get_columns("audit_logs")}
 
     if conn.dialect.name == "postgresql":
-        logger.info("Migration 20260831_02: ensuring audit_logs.user_id is nullable")
+        logger.info("Migration 20260831_02: ensuring audit_logs actor columns are nullable")
         conn.execute(text("ALTER TABLE audit_logs ALTER COLUMN user_id DROP NOT NULL"))
-    elif not user_column.get("nullable", True):
-        # SQLite cannot alter column nullability.  Fresh SQLite databases are
-        # created from the nullable ORM model; preserving a legacy NOT NULL
-        # constraint is safe because no direct-dashboard audit insert supplies
-        # a synthetic actor in production PostgreSQL.
-        logger.warning("Migration 20260831_02: legacy %s audit_logs.user_id remains NOT NULL; dialect cannot alter it", conn.dialect.name)
+        conn.execute(text("ALTER TABLE audit_logs ALTER COLUMN actor_user_id DROP NOT NULL"))
+
+    # Synchronize historic values between user_id and actor_user_id
+    if "user_id" in columns and "actor_user_id" in columns:
+        conn.execute(text(
+            "UPDATE audit_logs SET user_id = actor_user_id "
+            "WHERE user_id IS NULL AND actor_user_id IS NOT NULL"
+        ))
+        conn.execute(text(
+            "UPDATE audit_logs SET actor_user_id = user_id "
+            "WHERE actor_user_id IS NULL AND user_id IS NOT NULL"
+        ))
 
 
 def _reconcile_legacy_youtube_user_identity(conn) -> None:
@@ -280,6 +291,9 @@ def _apply_migrations(target_engine: Engine, migrations: Iterable[tuple[str, lis
                 elif version == "20260831_09_audit_logs_channel_identity":
                     _reconcile_audit_log_schema_complete(conn)
                 elif version == "20260831_10_audit_logs_nullable_user_id":
+                    _reconcile_direct_dashboard_audit_actor(conn)
+                    _reconcile_audit_log_schema_complete(conn)
+                elif version == "20260831_11_audit_logs_actor_user_id_compat":
                     _reconcile_direct_dashboard_audit_actor(conn)
                     _reconcile_audit_log_schema_complete(conn)
                 for statement_index, statement in enumerate(statements, start=1):
