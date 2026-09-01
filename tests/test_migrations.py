@@ -145,3 +145,48 @@ class MigrationRunnerTests(unittest.TestCase):
         with self.engine.connect() as conn:
             self.assertEqual(conn.execute(text("SELECT count(*) FROM migration_probe")).scalar_one(), 0)
         self.assertNotIn("test_broken", self.versions())
+
+    def test_legacy_audit_table_reconciles_varchar_actor_user_id(self):
+        with self.engine.begin() as conn:
+            conn.execute(text("CREATE TABLE system_state (id INTEGER PRIMARY KEY, emergency_stop BOOLEAN NOT NULL DEFAULT 0)"))
+            conn.execute(text("CREATE TABLE streamers (id INTEGER PRIMARY KEY, personality_mode VARCHAR)"))
+            conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, username VARCHAR, channel_id VARCHAR, youtube_id VARCHAR, youtube_user_id VARCHAR, first_seen TIMESTAMP, last_seen TIMESTAMP)"))
+            conn.execute(text("INSERT INTO users(id, username, channel_id, youtube_id, youtube_user_id) VALUES (1, 'viewer_one', 'UC-1', 'UC-1', 'UC-1')"))
+            conn.execute(text("INSERT INTO users(id, username, channel_id, youtube_id, youtube_user_id) VALUES (2, 'viewer_two', 'UC-2', 'UC-2', 'UC-2')"))
+            conn.execute(text(
+                "CREATE TABLE audit_logs ("
+                "id INTEGER PRIMARY KEY, "
+                "streamer_id INTEGER, "
+                "user_id INTEGER, "
+                "actor_user_id VARCHAR, "
+                "action VARCHAR NOT NULL, "
+                "details VARCHAR, "
+                "timestamp TIMESTAMP"
+                ")"
+            ))
+            # 1. Numeric string matching user 1
+            conn.execute(text("INSERT INTO audit_logs(id, streamer_id, user_id, actor_user_id, action) VALUES (1, 1, NULL, '1', 'ACTION_1')"))
+            # 2. Text channel_id string matching user 2
+            conn.execute(text("INSERT INTO audit_logs(id, streamer_id, user_id, actor_user_id, action) VALUES (2, 1, NULL, 'UC-2', 'ACTION_2')"))
+            # 3. Non-matching external string (should stay NULL user_id)
+            conn.execute(text("INSERT INTO audit_logs(id, streamer_id, user_id, actor_user_id, action) VALUES (3, 1, NULL, 'system_boot', 'ACTION_3')"))
+            # 4. Existing integer user_id with NULL actor_user_id
+            conn.execute(text("INSERT INTO audit_logs(id, streamer_id, user_id, actor_user_id, action) VALUES (4, 1, 2, NULL, 'ACTION_4')"))
+        run(self.engine, bootstrap=False)
+        with self.engine.connect() as conn:
+            row1 = conn.execute(text("SELECT user_id, actor_user_id FROM audit_logs WHERE id = 1")).one()
+            self.assertEqual(row1[0], 1)
+            self.assertEqual(row1[1], "1")
+
+            row2 = conn.execute(text("SELECT user_id, actor_user_id FROM audit_logs WHERE id = 2")).one()
+            self.assertEqual(row2[0], 2)
+            self.assertEqual(row2[1], "UC-2")
+
+            row3 = conn.execute(text("SELECT user_id, actor_user_id FROM audit_logs WHERE id = 3")).one()
+            self.assertIsNone(row3[0])
+            self.assertEqual(row3[1], "system_boot")
+
+            row4 = conn.execute(text("SELECT user_id, actor_user_id FROM audit_logs WHERE id = 4")).one()
+            self.assertEqual(row4[0], 2)
+            self.assertEqual(row4[1], "2")
+

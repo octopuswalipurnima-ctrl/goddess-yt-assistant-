@@ -77,7 +77,7 @@ def _reconcile_direct_dashboard_audit_actor(conn) -> None:
 
     if "actor_user_id" not in columns:
         logger.info("Migration 20260831_02: adding missing nullable audit_logs.actor_user_id")
-        conn.execute(text("ALTER TABLE audit_logs ADD COLUMN actor_user_id INTEGER"))
+        conn.execute(text("ALTER TABLE audit_logs ADD COLUMN actor_user_id VARCHAR"))
         columns = {column["name"].lower(): column for column in inspect(conn).get_columns("audit_logs")}
 
     if conn.dialect.name == "postgresql":
@@ -88,13 +88,47 @@ def _reconcile_direct_dashboard_audit_actor(conn) -> None:
     # Synchronize historic values between user_id and actor_user_id
     if "user_id" in columns and "actor_user_id" in columns:
         conn.execute(text(
-            "UPDATE audit_logs SET user_id = actor_user_id "
-            "WHERE user_id IS NULL AND actor_user_id IS NOT NULL"
-        ))
-        conn.execute(text(
-            "UPDATE audit_logs SET actor_user_id = user_id "
+            "UPDATE audit_logs SET actor_user_id = CAST(user_id AS VARCHAR) "
             "WHERE actor_user_id IS NULL AND user_id IS NOT NULL"
         ))
+        if "users" in table_names:
+            user_columns = {column["name"].lower() for column in inspect(conn).get_columns("users")}
+            if conn.dialect.name == "postgresql":
+                pg_match_clauses = []
+                for col in ("channel_id", "youtube_id", "youtube_user_id", "username"):
+                    if col in user_columns:
+                        pg_match_clauses.append(f"users.{col} = audit_logs.actor_user_id")
+                if pg_match_clauses:
+                    pg_match_sql = " OR ".join(pg_match_clauses)
+                    conn.execute(text(
+                        f"UPDATE audit_logs "
+                        f"SET user_id = users.id "
+                        f"FROM users "
+                        f"WHERE audit_logs.user_id IS NULL "
+                        f"  AND audit_logs.actor_user_id IS NOT NULL "
+                        f"  AND ({pg_match_sql})"
+                    ))
+                conn.execute(text(
+                    "UPDATE audit_logs "
+                    "SET user_id = CAST(actor_user_id AS INTEGER) "
+                    "WHERE user_id IS NULL "
+                    "  AND actor_user_id IS NOT NULL "
+                    "  AND actor_user_id ~ '^[0-9]+$' "
+                    "  AND EXISTS (SELECT 1 FROM users WHERE users.id = CAST(audit_logs.actor_user_id AS INTEGER))"
+                ))
+            else:
+                match_clauses = ["CAST(users.id AS TEXT) = audit_logs.actor_user_id"]
+                for col in ("channel_id", "youtube_id", "youtube_user_id", "username"):
+                    if col in user_columns:
+                        match_clauses.append(f"users.{col} = audit_logs.actor_user_id")
+                match_sql = " OR ".join(match_clauses)
+                conn.execute(text(
+                    f"UPDATE audit_logs "
+                    f"SET user_id = (SELECT users.id FROM users WHERE ({match_sql}) LIMIT 1) "
+                    f"WHERE user_id IS NULL "
+                    f"  AND actor_user_id IS NOT NULL "
+                    f"  AND EXISTS (SELECT 1 FROM users WHERE ({match_sql}))"
+                ))
 
 
 def _reconcile_legacy_youtube_user_identity(conn) -> None:
