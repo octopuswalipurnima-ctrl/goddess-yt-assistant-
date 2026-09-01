@@ -31,7 +31,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.database.connection import init_db, get_db
+from app.database.connection import SessionLocal, init_db, get_db
 from app.database.models import (
     User, XP, Streamer, AlertTemplate, GoalWidget, ClipRecord, 
     CustomCommand, VIPGuest, Coin, WaitingListEntry, ChatLog,
@@ -705,10 +705,11 @@ async def startup_event():
     db = SessionLocal()
     try:
         monitored_streamers = ensure_monitored_channels(db)
+        channel_ids = [streamer.youtube_channel_id for streamer in monitored_streamers if streamer.youtube_channel_id]
     finally:
         db.close()
-    for streamer in monitored_streamers:
-        subscribe_websub(streamer.youtube_channel_id)
+    for channel_id in channel_ids:
+        subscribe_websub(channel_id)
     start_scheduler()
     yt_monitor = YouTubeChatMonitor()
     app.state.yt_monitor = yt_monitor

@@ -1,6 +1,7 @@
 import os
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
+import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -144,3 +145,48 @@ class DashboardDirectEntryTests(unittest.TestCase):
             self.assertEqual(self.client.post("/api/youtube-webhook", content=xml).status_code, 204)
         self.assertNotIn(video_id, DETECTED_VIDEOS)
         self.assertIn(video_id, DISCONNECT_QUEUE)
+
+    def test_startup_seed_uses_and_closes_existing_session_factory(self):
+        import main
+        async def worker():
+            return None
+        def discard_task(coroutine):
+            coroutine.close()
+            return object()
+        session = type("Session", (), {"close": lambda self: setattr(self, "closed", True), "closed": False})()
+        streamer = type("Streamer", (), {"youtube_channel_id": "UC" + "z" * 22})()
+        monitor = type("Monitor", (), {"active_streams": {}, "run": lambda self: worker()})()
+        main.running_tasks.clear()
+        with patch.object(main, "init_db"), \
+             patch.object(main, "SessionLocal", return_value=session) as session_factory, \
+             patch.object(main, "ensure_monitored_channels", return_value=[streamer]), \
+             patch.object(main, "subscribe_websub"), \
+             patch.object(main, "start_scheduler"), \
+             patch.object(main, "YouTubeChatMonitor", return_value=monitor), \
+             patch.object(main.asyncio, "create_task", side_effect=discard_task), \
+             patch.object(main, "start_discord_bot", new=AsyncMock()), \
+             patch.object(main, "start_timed_command_loop", new=AsyncMock()), \
+             patch.object(main, "websub_renewal_loop", new=AsyncMock()):
+            asyncio.run(main.startup_event())
+        session_factory.assert_called_once_with()
+        self.assertTrue(session.closed)
+        self.assertIs(main.app.state.yt_monitor, monitor)
+        main.app.state.yt_monitor = None
+
+    def test_startup_event_with_real_database_seeds_and_subscribes(self):
+        import main
+        from app.services.youtube.monitored_channels import MONITORED_CHANNEL_IDS
+        subscribed = []
+        def discard_task(coroutine):
+            coroutine.close()
+            return object()
+        main.running_tasks.clear()
+        with patch.object(main, "subscribe_websub", side_effect=subscribed.append), \
+             patch.object(main, "start_scheduler"), \
+             patch.object(main.asyncio, "create_task", side_effect=discard_task), \
+             patch.object(main, "start_discord_bot", new=AsyncMock()), \
+             patch.object(main, "start_timed_command_loop", new=AsyncMock()), \
+             patch.object(main, "websub_renewal_loop", new=AsyncMock()):
+            asyncio.run(main.startup_event())
+        self.assertEqual(subscribed, list(MONITORED_CHANNEL_IDS))
+        main.app.state.yt_monitor = None
