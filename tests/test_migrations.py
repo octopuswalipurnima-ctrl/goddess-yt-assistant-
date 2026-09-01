@@ -29,6 +29,7 @@ class MigrationRunnerTests(unittest.TestCase):
         self.assertIn("20260831_06_streamer_persona_enabled", self.versions())
         self.assertIn("20260831_07_audit_log_schema_complete", self.versions())
         self.assertIn("20260831_08_youtube_daily_usage_window", self.versions())
+        self.assertIn("20260831_09_audit_logs_channel_identity", self.versions())
         self.assertIn("emergency_reason", {column["name"] for column in inspect(self.engine).get_columns("system_state")})
         self.assertIn("youtube_id", {column["name"] for column in inspect(self.engine).get_columns("users")})
         self.assertTrue({"first_seen", "last_seen"}.issubset({column["name"] for column in inspect(self.engine).get_columns("users")}))
@@ -82,12 +83,12 @@ class MigrationRunnerTests(unittest.TestCase):
             conn.execute(text("INSERT INTO audit_logs(id, streamer_id) VALUES (1, 1)"))
         run(self.engine, bootstrap=False)
         columns = {column["name"]: column for column in inspect(self.engine).get_columns("audit_logs")}
-        self.assertTrue({"streamer_id", "user_id", "action", "details", "timestamp"}.issubset(columns))
+        self.assertTrue({"streamer_id", "channel_id", "user_id", "action", "details", "timestamp"}.issubset(columns))
         self.assertFalse(columns["action"]["nullable"])
         with self.engine.begin() as conn:
             conn.execute(text(
-                "INSERT INTO audit_logs(streamer_id, user_id, action, details) "
-                "VALUES (1, NULL, 'YOUTUBE_CHANNEL_SET', 'UCtest')"
+                "INSERT INTO audit_logs(streamer_id, channel_id, user_id, action, details) "
+                "VALUES (1, 'UCtest', NULL, 'YOUTUBE_CHANNEL_SET', 'UCtest')"
             ))
         with self.engine.connect() as conn:
             self.assertEqual(conn.execute(text("SELECT action FROM audit_logs WHERE id = 1")).scalar_one(), "LEGACY_EVENT")

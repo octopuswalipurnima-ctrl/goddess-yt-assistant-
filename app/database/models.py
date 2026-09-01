@@ -13,6 +13,27 @@ def _youtube_user_id_from_youtube_id(context):
     """Populate the deployed legacy viewer-identity column from the same ID."""
     return context.get_current_parameters().get("youtube_id")
 
+
+def _channel_id_from_streamer(context):
+    """Keep the required audit channel identity aligned with streamer channel."""
+    params = context.get_current_parameters()
+    channel_id = params.get("channel_id")
+    if channel_id:
+        return channel_id
+    streamer_id = params.get("streamer_id")
+    if streamer_id is not None:
+        try:
+            from sqlalchemy import text
+            res = context.connection.execute(
+                text("SELECT youtube_channel_id FROM streamers WHERE id = :sid"),
+                {"sid": streamer_id}
+            ).scalar()
+            if res:
+                return res
+        except Exception:
+            pass
+    return None
+
 # --- The SaaS Streamer Table ---
 class Streamer(Base):
     __tablename__ = "streamers"
@@ -168,6 +189,7 @@ class AuditLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     streamer_id = Column(Integer, ForeignKey("streamers.id"), nullable=False)
+    channel_id = Column(String, index=True, nullable=False, default=_channel_id_from_streamer)
     # Direct dashboard mode has no website user principal.  Operational events
     # remain stream-scoped and auditable without fabricating a viewer record.
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)

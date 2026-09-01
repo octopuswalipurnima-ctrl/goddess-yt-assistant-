@@ -88,10 +88,9 @@ class DashboardDirectEntryTests(unittest.TestCase):
                 db.query(Streamer).filter(Streamer.youtube_channel_id.in_(MONITORED_CHANNEL_IDS)).count(),
                 len(MONITORED_CHANNEL_IDS),
             )
-            self.assertEqual(
-                db.query(AuditLog).filter(AuditLog.action == "MONITORED_CHANNEL_REGISTERED").count(),
-                len(MONITORED_CHANNEL_IDS),
-            )
+            logs = db.query(AuditLog).filter(AuditLog.action == "MONITORED_CHANNEL_REGISTERED").all()
+            self.assertEqual(len(logs), len(MONITORED_CHANNEL_IDS))
+            self.assertTrue(all(log.channel_id in MONITORED_CHANNEL_IDS for log in logs))
         finally:
             db.close()
 

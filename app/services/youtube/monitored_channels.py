@@ -30,6 +30,7 @@ def ensure_monitored_channels(db: Session) -> list[Streamer]:
             db.flush()
             db.add(AuditLog(
                 streamer_id=streamer.id,
+                channel_id=channel_id,
                 user_id=None,
                 action="MONITORED_CHANNEL_REGISTERED",
                 details=channel_id,

@@ -32,7 +32,7 @@ MIGRATIONS = [("20260830_01_emergency_stop", [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS channel_id VARCHAR",
     "UPDATE users SET channel_id = youtube_id WHERE channel_id IS NULL AND youtube_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_channel_id ON users (channel_id)",
-]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", []), ("20260831_07_audit_log_schema_complete", []), ("20260831_08_youtube_daily_usage_window", [])]
+]), ("20260831_02_direct_dashboard_audit_actor", []), ("20260831_03_legacy_youtube_user_identity", []), ("20260831_04_streamer_personality_mode", []), ("20260831_05_audit_streamer_scope", []), ("20260831_06_streamer_persona_enabled", []), ("20260831_07_audit_log_schema_complete", []), ("20260831_08_youtube_daily_usage_window", []), ("20260831_09_audit_logs_channel_identity", [])]
 
 
 class MigrationError(RuntimeError):
@@ -200,6 +200,19 @@ def _reconcile_audit_log_schema_complete(conn) -> None:
     _reconcile_audit_streamer_scope(conn)
 
     columns = {column["name"].lower(): column for column in inspect(conn).get_columns("audit_logs")}
+    if "channel_id" not in columns:
+        logger.info("Migration 20260831_07: adding required audit_logs.channel_id")
+        conn.execute(text("ALTER TABLE audit_logs ADD COLUMN channel_id VARCHAR"))
+    if "streamers" in table_names:
+        streamer_cols = {column["name"].lower() for column in inspect(conn).get_columns("streamers")}
+        if "youtube_channel_id" in streamer_cols:
+            conn.execute(text(
+                "UPDATE audit_logs SET channel_id = ("
+                "    SELECT streamers.youtube_channel_id FROM streamers WHERE streamers.id = audit_logs.streamer_id"
+                ") WHERE audit_logs.channel_id IS NULL AND audit_logs.streamer_id IS NOT NULL"
+            ))
+
+    columns = {column["name"].lower(): column for column in inspect(conn).get_columns("audit_logs")}
     if "action" not in columns:
         logger.info("Migration 20260831_07: adding required audit_logs.action")
         conn.execute(text("ALTER TABLE audit_logs ADD COLUMN action VARCHAR NOT NULL DEFAULT 'LEGACY_EVENT'"))
@@ -269,6 +282,8 @@ def _apply_migrations(target_engine: Engine, migrations: Iterable[tuple[str, lis
                     _reconcile_audit_log_schema_complete(conn)
                 elif version == "20260831_08_youtube_daily_usage_window":
                     _reconcile_youtube_daily_usage_window(conn)
+                elif version == "20260831_09_audit_logs_channel_identity":
+                    _reconcile_audit_log_schema_complete(conn)
                 for statement_index, statement in enumerate(statements, start=1):
                     try:
                         executable_statement = _statement_for_dialect(conn, statement)
